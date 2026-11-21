@@ -38,6 +38,16 @@
   .sys { color:var(--dim); font-style:italic; margin-bottom:10px; }
   .anim { display:inline-block; font-size:56px; margin-top:6px; }
   .chatgif { display:block; max-width:min(320px,80vw); max-height:240px; margin-top:8px; border:1px solid #333; }
+  #peopleSearchPanel, #dmPanel { position:fixed; z-index:40; inset:6% 5%; max-width:560px; margin:auto; max-height:88vh; overflow:auto; padding:16px; background:#050b07; border:1px solid #0f0; box-shadow:0 0 24px #0f05; }
+  #peopleResults button { display:block; width:100%; text-align:left; margin:7px 0; }
+  #dmMessages { height:min(48vh,420px); overflow:auto; border:1px solid #124d2a; padding:10px; margin:10px 0; background:#000; }
+  .dm-line { margin:7px 0; overflow-wrap:anywhere; }
+  .dm-line strong { color:#0f0; }
+  #dmComposer { display:flex; gap:8px; }
+  #dmComposer input { flex:1; min-width:0; }
+  #ownerServersPanel { position:fixed; z-index:30; inset:8% 5%; max-width:620px; margin:auto; max-height:84vh; overflow:auto; padding:16px; background:#050b07; border:1px solid #0f0; box-shadow:0 0 24px #0f05; }
+  #ownerServerList .matrix-user { gap:10px; }
+  #ownerServerList button { padding:5px 8px; }
   #modPanel { position:fixed; z-index:5; right:12px; top:58px; width:min(300px,90vw); max-height:65vh; overflow:auto; background:#080808; border:1px solid var(--green); padding:12px; box-shadow:0 0 20px #0f04; }
   #modPanel h3 { color:var(--green); margin:0 0 10px; }
   .moduser { display:flex; justify-content:space-between; align-items:center; gap:8px; margin:8px 0; }
@@ -93,6 +103,8 @@
   <input id="username" placeholder="chat display name" maxlength="20" autocomplete="off">
   <div id="servers"></div>
   <div id="newrow"><input id="newname" placeholder="or create a new server" maxlength="30" autocomplete="off"><button id="newBtn">CREATE</button></div>
+  <button id="peopleSearchMenuBtn" type="button">SEARCH PLAYERS / PRIVATE MESSAGE</button>
+  <button id="ownerServersBtn" class="hidden" type="button">OWNER: MANAGE ALL SERVERS</button>
   <div id="err"></div>
   <button id="joinBtn">JOIN</button>
   <div id="status"></div>
@@ -101,7 +113,7 @@
 <div id="chat" class="hidden">
   <div id="side"><h3>ONLINE</h3><div id="users"></div></div>
   <div id="main">
-    <div id="top"><span id="title"></span><span><button id="inviteBtn">INVITE</button> <button id="profileBtn">PROFILE</button> <button id="modBtn" class="hidden">MODERATION</button> <button id="muteBtn">SOUND ON</button> <button id="leaveBtn">LEAVE</button></span></div>
+    <div id="top"><span id="title"></span><span><button id="inviteBtn">INVITE</button> <button id="peopleSearchChatBtn">SEARCH PLAYERS</button> <button id="serverSettingsBtn" class="hidden">SERVER SETTINGS</button> <button id="ownerServersChatBtn" class="hidden">OWNER SERVERS</button> <button id="profileBtn">PROFILE</button> <button id="modBtn" class="hidden">MODERATION</button> <button id="muteBtn">SOUND ON</button> <button id="leaveBtn">LEAVE</button></span></div>
     <div id="log"></div>
     <div id="tray" class="hidden">
       <div id="gifs"></div>
@@ -119,12 +131,33 @@
   </div>
 </div>
 
+<div id="peopleSearchPanel" class="hidden">
+  <button id="closePeopleSearch" style="float:right">CLOSE</button>
+  <h3 style="color:#0f0">// FIND PLAYERS</h3>
+  <p style="color:#999;font-size:12px">Search usernames of players who are currently online in a server, then open a private message.</p>
+  <input id="peopleSearchInput" placeholder="Search a player's username..." maxlength="20" style="width:100%">
+  <div id="peopleResults"></div>
+  <div id="peopleSearchStatus" style="color:#888;font-size:12px;margin-top:8px"></div>
+</div>
+<div id="dmPanel" class="hidden">
+  <button id="closeDm" style="float:right">CLOSE</button>
+  <h3 style="color:#0f0">// PRIVATE MESSAGE: <span id="dmTargetName"></span></h3>
+  <div id="dmMessages"></div>
+  <div id="dmComposer"><input id="dmInput" placeholder="Message privately..." maxlength="500"><button id="dmSend">SEND</button></div>
+  <p style="color:#888;font-size:11px">Private messages are live-only and are not saved. This Realtime-only version is not end-to-end encrypted.</p>
+</div>
+<div id="ownerServersPanel" class="hidden">
+  <button id="closeOwnerServers" style="float:right">CLOSE</button>
+  <h3 style="color:#0f0">// GLOBAL OWNER SERVER CONTROL</h3>
+  <p style="color:#999;font-size:12px">Live servers currently visible in the multiplayer lobby. You can join or send a shutdown notice.</p>
+  <div id="ownerServerList"></div>
+</div>
 <div id="modPanel" class="matrix-panel hidden">
   <button class="matrix-close" id="closeMod">X</button>
   <h3>// SERVER MODERATION</h3>
   <div class="matrix-tag">OWNER CONSOLE · LIVE ROOM USERS</div>
   <div id="modUsers"></div>
-  <p class="matrix-tag">KICK is a client-side realtime action, not tamper-proof security.</p>
+  <p class="matrix-tag">Client-side moderation is a convenience feature, not tamper-proof security. Server privacy and owner controls are not secure against modified clients without server-side authorization.</p>
 </div>
 <div id="profilePanel" class="matrix-panel hidden">
   <button class="matrix-close" id="closeProfile">X</button>
@@ -166,6 +199,24 @@ const slug = s => String(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^
 const known = { general:"General", gaming:"Gaming", music:"Music", "late-night":"Late Night" };
 let room = null, nr = null, me = "", srv = null, label = "", selected = null, counts = {}, unsubs = [], settled = false;
 let ownerPeerId = null, iAmOwner = false, ownerUnlocked = false, roomPeers = [];
+const SERVER_META_KEY = "tg_server_meta_v1";
+let serverDirectory = {};
+let serverInviteToken = "";
+try { serverInviteToken = new URLSearchParams(location.hash.replace(/^#/, "")).get("invite") || ""; } catch(e) {}
+function readServerMeta() { try { return JSON.parse(localStorage.getItem(SERVER_META_KEY) || "{}"); } catch(e) { return {}; } }
+function writeServerMeta(data) { try { localStorage.setItem(SERVER_META_KEY, JSON.stringify(data)); } catch(e) {} }
+function randomToken() { const bytes = crypto.getRandomValues(new Uint8Array(18)); return Array.from(bytes, b => b.toString(16).padStart(2,"0")).join(""); }
+async function hashToken(value) { const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(value))); return Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2,"0")).join(""); }
+function localServerMeta(id) { return readServerMeta()[id] || null; }
+function serverMeta(id) { return localServerMeta(id) || serverDirectory[id] || null; }
+function isServerCreator(id) { const meta = serverMeta(id); return !!(meta && accountUser && meta.creatorUserId === accountUser.id); }
+function serverPresenceData(id) { const meta = serverMeta(id) || {}; return { serverPrivate: !!meta.isPrivate, serverCreatorId: meta.creatorUserId || "", serverCreatorName: meta.creatorName || "", serverInviteHash: meta.inviteHash || "" }; }
+function refreshServerOwnerButtons() {
+  const creator = !!srv && isServerCreator(srv);
+  $("serverSettingsBtn")?.classList.toggle("hidden", !creator);
+  $("ownerServersBtn")?.classList.toggle("hidden", accountRole !== "owner");
+  $("ownerServersChatBtn")?.classList.toggle("hidden", accountRole !== "owner");
+}
 let profile = { name: "", avatar: "◈", status: "", bio: "" };
 try { profile = { ...profile, ...JSON.parse(localStorage.getItem("tg_profile") || "{}") }; } catch (e) {}
 try {
@@ -180,17 +231,21 @@ try {
 function renderServers() {
   const keys = Object.keys(known);
   Object.keys(counts).forEach(k => { if (!keys.includes(k)) keys.push(k); });
+  Object.keys(serverDirectory).forEach(k => { if (!keys.includes(k)) keys.push(k); });
   $("servers").innerHTML = "";
   keys.forEach(k => {
+    const meta = serverMeta(k);
+    const isPrivate = !!meta?.isPrivate;
+    const canSeePrivate = accountRole === "owner" || (accountUser && meta?.creatorUserId === accountUser.id) || !!serverInviteToken;
+    if (isPrivate && !canSeePrivate) return;
     const b = document.createElement("button");
     b.className = "server" + (k === selected ? " sel" : "");
     b.innerHTML = "<span></span><span></span>";
-    b.children[0].textContent = known[k] || k;
+    b.children[0].textContent = (isPrivate ? "🔒 " : "") + (known[k] || meta?.label || k);
     b.children[1].textContent = (counts[k] || 0) + " online";
     b.onclick = () => {
       selected = k;
       renderServers();
-      // If this browser already has a saved profile, selecting a server joins it directly.
       const savedName = (profile?.name || localStorage.getItem("tg_user") || "").trim();
       if (savedName) {
         $("username").value = savedName;
@@ -199,13 +254,22 @@ function renderServers() {
     };
     $("servers").appendChild(b);
   });
+  refreshServerOwnerButtons();
+  if (accountRole === "owner" && !$("ownerServersPanel").classList.contains("hidden")) renderOwnerServerList();
 }
 renderServers();
 
 $("newBtn").onclick = () => {
   const n = $("newname").value.trim(), k = slug(n);
   if (!k) return;
-  known[k] = n.slice(0, 30); selected = k; $("newname").value = ""; renderServers();
+  if (!accountUser) { $("err").textContent = "Sign up or log in before creating a server."; return; }
+  const all = readServerMeta();
+  if (all[k] && all[k].creatorUserId !== accountUser.id) { $("err").textContent = "That server name is already taken on this browser. Choose another."; return; }
+  const inviteCode = randomToken();
+  known[k] = n.slice(0, 30); selected = k;
+  all[k] = { id:k, label:n.slice(0,30), creatorUserId:accountUser.id, creatorName:accountUsername, isPrivate:false, inviteCode, inviteHash:"", createdAt:Date.now() };
+  writeServerMeta(all); $("newname").value = ""; renderServers();
+  $("err").textContent = "Server created! You are its creator. Open SERVER SETTINGS after joining to make it private.";
 };
 
 // ---- REAL ONLINE MULTIPLAYER (Supabase Realtime only) ----
@@ -249,6 +313,7 @@ async function loadAccountRole() {
   ownerUnlocked = iAmOwner;
   $("modBtn").classList.toggle("hidden", !(accountRole === "owner" || accountRole === "admin"));
   $("logOutBtn").classList.remove("hidden");
+  $("ownerServersBtn").classList.toggle("hidden", accountRole !== "owner");
   $("signUpBtn").classList.add("hidden");
   $("logInBtn").classList.add("hidden");
 }
@@ -271,6 +336,7 @@ async function signUpAccount() {
   accountUser = { id: record.id, username: name }; accountUsername = name; accountRole = role;
   localStorage.setItem(LOCAL_SESSION_KEY, record.id);
   await loadAccountRole();
+  setupPrivateInbox();
   $("username").value = name;
   $("accountPassword").value = "";
   setAccountStatus("Account created. Logged in as " + name + (accountRole === "owner" ? " · OWNER" : ""));
@@ -285,6 +351,7 @@ async function logInAccount() {
   accountUser = { id: record.id, username: record.username }; accountUsername = record.username;
   localStorage.setItem(LOCAL_SESSION_KEY, record.id);
   await loadAccountRole();
+  setupPrivateInbox();
   $("username").value = accountUsername;
   $("accountPassword").value = "";
   setAccountStatus("Logged in as " + accountUsername + (accountRole === "owner" ? " · OWNER" : accountRole === "admin" ? " · ADMIN" : ""));
@@ -336,12 +403,12 @@ async function claimGlobalOwner() {
   }
   // Publish the claim to the all-game lobby, not just this server.
   await nr.presence({ name: me, avatar: profile.avatar || "◈", status: profile.status || "", bio: profile.bio || "", ownerPeerId: peerId });
-  await room.presence({ srv, label, name: me, ownerPeerId: peerId });
+  await room.presence({ srv, label, name: me, userId:accountUser?.id, avatar:profile.avatar || "◈", status:profile.status || "", bio:profile.bio || "", role:accountRole, ownerPeerId: peerId });
   await waitMs(1100);
   const claims = [peerId, ...globalOwnerPeers().map(p => p.id)].sort();
   if (claims[0] !== peerId) {
     await nr.presence({ name: me, avatar: profile.avatar || "◈", status: profile.status || "", bio: profile.bio || "", ownerPeerId: null });
-    await room.presence({ srv, label, name: me });
+    await room.presence({ srv, label, name: me, userId: accountUser?.id, avatar: profile.avatar || "◈", status: profile.status || "", bio: profile.bio || "", role: accountRole });
     sys("Someone else claimed the global owner role first.");
     return false;
   }
@@ -408,19 +475,35 @@ async function connectOnline() {
     lobbyChannel.on("presence", { event: "sync" }, () => {
       const peers = peersFromState(lobbyChannel.presenceState());
       counts = {};
+      serverDirectory = {};
       peers.forEach(p => {
         const serverId = p.presence?.srv;
         if (typeof serverId === "string" && /^[a-z0-9-]{1,30}$/.test(serverId)) {
           counts[serverId] = (counts[serverId] || 0) + 1;
-          if (!known[serverId] && typeof p.presence.label === "string") {
-            known[serverId] = p.presence.label.slice(0, 30);
-          }
+          if (!known[serverId] && typeof p.presence.label === "string") known[serverId] = p.presence.label.slice(0, 30);
+          serverDirectory[serverId] = { id:serverId, label:String(p.presence.label || serverId).slice(0,30), creatorUserId:p.presence.serverCreatorId || "", creatorName:p.presence.serverCreatorName || "", isPrivate:!!p.presence.serverPrivate, inviteHash:p.presence.serverInviteHash || "" };
         }
       });
       renderServers();
       lobbyListeners.forEach(fn => fn({ peers }));
+      if ($("peopleSearchPanel") && !$("peopleSearchPanel").classList.contains("hidden")) renderPeopleSearch();
     });
 
+    lobbyChannel.on("broadcast", { event: "server-shutdown" }, async ({ payload }) => {
+      if (!payload?.srv || payload.srv !== srv || !nr) return;
+      sys("This server was shut down by the global owner.");
+      try { await nr.leave(); } catch(e) {}
+      nr = null;
+      try { await room.presence({ srv:null, label:null, name:null }); } catch(e) {}
+      $("chat").classList.add("hidden"); $("login").classList.remove("hidden");
+      $("err").textContent = "This server has been shut down by the global owner.";
+    });
+    lobbyChannel.on("broadcast", { event: "server-update" }, ({ payload }) => {
+      if (!payload?.srv) return;
+      const prior = serverDirectory[payload.srv] || {};
+      serverDirectory[payload.srv] = { ...prior, ...payload.meta, id:payload.srv };
+      renderServers();
+    });
     await waitForSubscribe(lobbyChannel);
 
     // The multiplayer adapter is only exposed after the lobby connection is live.
@@ -430,8 +513,14 @@ async function connectOnline() {
         fn({ peers: peersFromState(lobbyChannel.presenceState()) });
       },
       async presence(data) {
-        if (data?.srv) await lobbyChannel.track({ ...data, peerId });
-        else await lobbyChannel.untrack();
+        if (data?.srv) {
+          await lobbyChannel.track({ ...data, ...serverPresenceData(data.srv), peerId });
+        } else if (accountUser) {
+          // Stay discoverable from the main menu after leaving a server.
+          await lobbyChannel.track({ name:accountUsername || profile.name || "Player", userId:accountUser.id, avatar:profile.avatar || "◈", status:profile.status || "", bio:profile.bio || "", role:accountRole, srv:null, label:null, peerId });
+        } else {
+          await lobbyChannel.untrack();
+        }
       },
       async join(channelName) {
         const channel = onlineClient.channel("text-game-" + channelName, {
@@ -480,7 +569,7 @@ async function connectOnline() {
           if (!updateLocalAccountRole(payload.targetUserId, payload.role)) return;
           try {
             if (nr) await nr.presence({ name: me, userId: accountUser.id, avatar: profile.avatar || "◈", status: profile.status || "", bio: profile.bio || "", role: accountRole });
-            if (room) await room.presence({ srv, label, name: me });
+            if (room) await room.presence({ srv, label, name: me, userId: accountUser?.id, avatar: profile.avatar || "◈", status: profile.status || "", bio: profile.bio || "", role: accountRole });
           } catch (e) {}
           handlers.role.forEach(fn => fn(payload));
         });
@@ -552,6 +641,7 @@ async function connectOnline() {
     };
 
     onlineReady = true;
+    if (accountUser) setupPrivateInbox();
     status.textContent = "ONLINE SERVICE CONNECTED. Choose a server and join your friend.";
     joinButton.disabled = false;
     joinButton.textContent = "JOIN";
@@ -567,7 +657,7 @@ async function connectOnline() {
 connectOnline();
 $("signUpBtn").onclick = async () => { try { await signUpAccount(); } catch(e) { setAccountStatus(e.message || "Sign up failed", true); } };
 $("logInBtn").onclick = async () => { try { await logInAccount(); } catch(e) { setAccountStatus(e.message || "Log in failed", true); } };
-$("logOutBtn").onclick = () => { localStorage.removeItem(LOCAL_SESSION_KEY); accountUser=null; accountRole="player"; accountUsername=""; iAmOwner=false; ownerUnlocked=false; $("modBtn").classList.add("hidden"); $("logOutBtn").classList.add("hidden"); $("signUpBtn").classList.remove("hidden"); $("logInBtn").classList.remove("hidden"); setAccountStatus("Logged out."); };
+$("logOutBtn").onclick = async () => { if (inboxChannel && onlineClient) { try { await onlineClient.removeChannel(inboxChannel); } catch(e) {} inboxChannel = null; } await closeDirectMessage(); localStorage.removeItem(LOCAL_SESSION_KEY); accountUser=null; accountRole="player"; accountUsername=""; iAmOwner=false; ownerUnlocked=false; $("ownerServersBtn").classList.add("hidden"); $("ownerServersChatBtn").classList.add("hidden"); $("modBtn").classList.add("hidden"); $("logOutBtn").classList.add("hidden"); $("signUpBtn").classList.remove("hidden"); $("logInBtn").classList.remove("hidden"); setAccountStatus("Logged out."); };
 
 // Restore the local-only account session; no Supabase Auth is contacted.
 (async () => {
@@ -578,6 +668,7 @@ $("logOutBtn").onclick = () => { localStorage.removeItem(LOCAL_SESSION_KEY); acc
       accountUser = { id: record.id, username: record.username };
       accountUsername = record.username;
       await loadAccountRole();
+      setupPrivateInbox();
       $("accountName").value = accountUsername;
       $("username").value = accountUsername;
       setAccountStatus("Session restored for " + accountUsername + " (this browser)");
@@ -651,11 +742,11 @@ $("saveProfile").onclick = async () => {
   if (nr) {
     try {
       await nr.presence({ name, avatar: profile.avatar, status: profile.status, bio: profile.bio, ownerPeerId: iAmOwner ? peerId : null });
-      await room.presence({ srv, label, name, ...(iAmOwner ? { ownerPeerId: peerId } : {}) });
+      await room.presence({ srv, label, name, userId:accountUser?.id, avatar:profile.avatar || "◈", status:profile.status || "", bio:profile.bio || "", role:accountRole, ...(iAmOwner ? { ownerPeerId: peerId } : {}) });
       await waitMs(500);
       if (!duplicateWinnerIsMe(name)) {
         await nr.presence({ name: previousName, avatar: profile.avatar, status: profile.status, bio: profile.bio, ownerPeerId: iAmOwner ? peerId : null });
-        await room.presence({ srv, label, name: previousName });
+        await room.presence({ srv, label, name: previousName, userId:accountUser?.id, avatar:profile.avatar || "◈", status:profile.status || "", bio:profile.bio || "", role:accountRole });
         alert("That username was claimed by another player at the same time. Your old username was kept.");
         return;
       }
@@ -670,12 +761,72 @@ $("saveProfile").onclick = async () => {
 $("modBtn").onclick = () => { if (accountRole !== "owner" && accountRole !== "admin") return; $("modPanel").classList.toggle("hidden"); $("profilePanel").classList.add("hidden"); $("publicProfilePanel").classList.add("hidden"); };
 $("closeMod").onclick = () => $("modPanel").classList.add("hidden");
 $("inviteBtn").onclick = async () => {
-  const url = new URL(location.href); url.hash = "server=" + encodeURIComponent(srv || selected || "general");
-  try { await navigator.clipboard.writeText(url.href); sys("Invite link copied!"); }
+  const id = srv || selected || "general", meta = serverMeta(id);
+  if (meta?.isPrivate && !isServerCreator(id) && accountRole !== "owner" && !serverInviteToken) { sys("Only the server creator can make private invites."); return; }
+  const url = new URL(location.href); const params = new URLSearchParams(); params.set("server", id);
+  if (meta?.isPrivate) params.set("invite", meta.inviteCode || serverInviteToken);
+  url.hash = params.toString();
+  try { await navigator.clipboard.writeText(url.href); sys("Invite link copied! Share it with the people you want to invite."); }
   catch (e) { prompt("Copy this server invite link:", url.href); }
 };
-// Apply a server invite hash when opening the page.
-try { const match = location.hash.match(/server=([^&]+)/); if (match) { selected = decodeURIComponent(match[1]).slice(0,30); if (!known[selected]) known[selected] = selected.replace(/-/g," "); renderServers(); } } catch (e) {}
+$("serverSettingsBtn").onclick = async () => {
+  if (!srv || !isServerCreator(srv)) { sys("Only this server's creator can change its privacy."); return; }
+  const all = readServerMeta(), meta = all[srv];
+  if (!meta) return;
+  const makePrivate = !meta.isPrivate;
+  if (makePrivate) {
+    const ok = confirm("Make this server PRIVATE? Only people with its invite link can join. Existing players stay connected.");
+    if (!ok) return;
+    if (!meta.inviteCode) meta.inviteCode = randomToken();
+    meta.inviteHash = await hashToken(meta.inviteCode);
+    meta.isPrivate = true;
+  } else {
+    if (!confirm("Make this server PUBLIC again? Anyone can join.")) return;
+    meta.isPrivate = false; meta.inviteHash = "";
+  }
+  all[srv] = meta; writeServerMeta(all);
+  await room.presence({ srv, label, name: me, ...(accountRole === "owner" ? { ownerPeerId:peerId } : {}) });
+  if (lobbyChannel) { try { await lobbyChannel.send({ type:"broadcast", event:"server-update", payload:{ srv, meta:{ label:meta.label, creatorUserId:meta.creatorUserId, creatorName:meta.creatorName, isPrivate:meta.isPrivate, inviteHash:meta.inviteHash } } }); } catch(e) {} }
+  refreshServerOwnerButtons(); renderServers();
+  sys(meta.isPrivate ? "Server is now PRIVATE. Use INVITE to copy its private link." : "Server is now PUBLIC.");
+};
+function renderOwnerServerList() {
+  const list = $("ownerServerList"); if (!list) return;
+  list.innerHTML = "";
+  const ids = Object.keys(serverDirectory);
+  if (!ids.length) { list.textContent = "No active servers are currently visible. Servers appear here while at least one player is online."; return; }
+  ids.sort().forEach(id => {
+    const meta = serverDirectory[id] || {}, row = document.createElement("div"); row.className = "matrix-user";
+    const info = document.createElement("span"); info.textContent = (meta.isPrivate ? "🔒 " : "🌐 ") + (meta.label || id) + " · " + (counts[id] || 0) + " online" + (meta.creatorName ? " · by " + meta.creatorName : "");
+    const actions = document.createElement("span"); actions.style.display = "flex"; actions.style.gap = "6px";
+    const join = document.createElement("button"); join.textContent = "JOIN"; join.onclick = async () => {
+      selected = id; known[id] = meta.label || id; serverInviteToken = "";
+      $("ownerServersPanel").classList.add("hidden");
+      if (nr) { await $("leaveBtn").click(); await waitMs(300); }
+      $("username").value = accountUsername || profile.name || "OWNER";
+      $("joinBtn").click();
+    };
+    const shut = document.createElement("button"); shut.textContent = "SHUT DOWN"; shut.style.borderColor = "#f55"; shut.style.color = "#f77";
+    shut.onclick = async () => {
+      if (accountRole !== "owner" || !confirm("Shut down '" + (meta.label || id) + "' for everyone currently online?")) return;
+      try {
+        const result = await lobbyChannel.send({ type:"broadcast", event:"server-shutdown", payload:{ srv:id, ownerPeerId:peerId, ownerName:accountUsername } });
+        if (result !== "ok") throw new Error(String(result));
+        sys("Shutdown notice sent for " + (meta.label || id) + ".");
+      } catch(e) { alert("Could not send shutdown notice: " + (e.message || e)); }
+    };
+    actions.append(join, shut); row.append(info, actions); list.appendChild(row);
+  });
+}
+function openOwnerServers() {
+  if (accountRole !== "owner") return;
+  renderOwnerServerList(); $("ownerServersPanel").classList.remove("hidden");
+}
+$("ownerServersBtn").onclick = openOwnerServers;
+$("ownerServersChatBtn").onclick = openOwnerServers;
+$("closeOwnerServers").onclick = () => $("ownerServersPanel").classList.add("hidden");
+// Apply server and optional private invite from the URL hash.
+try { const params = new URLSearchParams(location.hash.replace(/^#/, "")); const match = params.get("server"); if (match) { selected = match.slice(0,30); if (!known[selected]) known[selected] = selected.replace(/-/g," "); serverInviteToken = params.get("invite") || ""; renderServers(); } } catch (e) {}
 
 // ---- log helpers (all text via textContent) ----
 function add(n) { $("log").appendChild(n); $("log").scrollTop = $("log").scrollHeight; }
@@ -717,6 +868,106 @@ function showGif(m, mine) {
   d.appendChild(document.createElement("br")); d.appendChild(span); add(d); SFX.gif();
 }
 
+// ---- player search + live private messages ----
+let dmChannel = null, inboxChannel = null, dmTarget = null, dmChannelName = "";
+function onlinePlayerDirectory() {
+  if (!lobbyChannel) return [];
+  const unique = new Map();
+  peersFromState(lobbyChannel.presenceState()).forEach(p => {
+    const data = p.presence || {};
+    if (!data.userId || !data.name || data.userId === accountUser?.id) return;
+    const old = unique.get(data.userId);
+    if (!old || data.srv) unique.set(data.userId, { id:data.userId, name:String(data.name).slice(0,20), avatar:data.avatar || "◈", status:data.status || "", bio:data.bio || "", role:data.role || "player", server:data.label || "" });
+  });
+  return [...unique.values()].sort((a,b) => a.name.localeCompare(b.name));
+}
+function renderPeopleSearch() {
+  const q = cleanUsername($("peopleSearchInput").value);
+  const results = onlinePlayerDirectory().filter(p => !q || cleanUsername(p.name).includes(q));
+  $("peopleResults").innerHTML = "";
+  results.forEach(person => {
+    const b = document.createElement("button");
+    b.textContent = person.avatar + "  " + person.name + (person.role === "owner" ? " ★ OWNER" : "") + (person.server ? " · " + person.server : "");
+    if (person.role === "owner") b.classList.add("owner-rainbow");
+    b.onclick = () => openDirectMessage(person);
+    $("peopleResults").appendChild(b);
+  });
+  $("peopleSearchStatus").textContent = results.length ? results.length + " online player(s) found." : "No matching players are online right now.";
+}
+function openPeopleSearch() {
+  if (!accountUser) { if ($("peopleSearchStatus")) $("peopleSearchStatus").textContent = "Sign up or log in first."; return; }
+  $("peopleSearchPanel").classList.remove("hidden");
+  renderPeopleSearch();
+  $("peopleSearchInput").focus();
+}
+async function accountInboxName(userId) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(userId)));
+  return "text-game-inbox-" + Array.from(new Uint8Array(digest).slice(0,16), b => b.toString(16).padStart(2,"0")).join("");
+}
+async function setupPrivateInbox() {
+  if (!onlineClient || !accountUser || inboxChannel) return;
+  const name = await accountInboxName(accountUser.id);
+  inboxChannel = onlineClient.channel(name, { config: { broadcast: { self:false, ack:true } } });
+  inboxChannel.on("broadcast", { event:"dm" }, async ({ payload }) => {
+    if (!payload || payload.to !== accountUser?.id || !payload.from) return;
+    const sender = { id:payload.from, name:String(payload.name || "Player").slice(0,20), avatar:"◈" };
+    if (!dmTarget || dmTarget.id !== sender.id || $("dmPanel").classList.contains("hidden")) {
+      await openDirectMessage(sender);
+    }
+    appendDmMessage(sender.name, payload.text || "");
+  });
+  try { await waitForSubscribe(inboxChannel); }
+  catch(e) { try { await onlineClient.removeChannel(inboxChannel); } catch(_) {} inboxChannel = null; }
+}
+async function closeDirectMessage() {
+  if (dmChannel && onlineClient) { try { await onlineClient.removeChannel(dmChannel); } catch(e) {} }
+  dmChannel = null; dmTarget = null; dmChannelName = "";
+  $("dmPanel").classList.add("hidden");
+}
+async function openDirectMessage(person) {
+  if (!accountUser || !person?.id || !onlineClient) return;
+  if (person.id === accountUser.id) return;
+  await closeDirectMessage();
+  dmTarget = person;
+  $("dmTargetName").textContent = person.name;
+  $("dmMessages").innerHTML = "";
+  $("peopleSearchPanel").classList.add("hidden");
+  $("dmPanel").classList.remove("hidden");
+  dmChannelName = await accountInboxName(person.id);
+  dmChannel = onlineClient.channel(dmChannelName, { config: { broadcast: { self:false, ack:true } } });
+  try {
+    await waitForSubscribe(dmChannel);
+    $("dmInput").focus();
+  } catch(e) {
+    $("dmMessages").textContent = "Couldn't open private messages: " + (e.message || "connection failed");
+    try { await onlineClient.removeChannel(dmChannel); } catch(_) {}
+    dmChannel = null;
+  }
+}
+function appendDmMessage(name, value) {
+  const line = document.createElement("div"); line.className = "dm-line";
+  const who = document.createElement("strong"); who.textContent = name + ": ";
+  line.appendChild(who); line.appendChild(document.createTextNode(String(value).slice(0,500)));
+  $("dmMessages").appendChild(line); $("dmMessages").scrollTop = $("dmMessages").scrollHeight;
+}
+async function sendDirectMessage() {
+  const value = $("dmInput").value.trim();
+  if (!value || !dmChannel || !dmTarget) return;
+  const payload = { from:accountUser.id, to:dmTarget.id, name:accountUsername, text:value.slice(0,500), sentAt:Date.now() };
+  try {
+    const result = await dmChannel.send({ type:"broadcast", event:"dm", payload });
+    if (result !== "ok") throw new Error("Realtime send failed: " + result);
+    appendDmMessage(accountUsername, value); $("dmInput").value = "";
+  } catch(e) { appendDmMessage("SYSTEM", "Message failed to send. " + (e.message || "")); }
+}
+$("peopleSearchMenuBtn").onclick = openPeopleSearch;
+$("peopleSearchChatBtn").onclick = openPeopleSearch;
+$("closePeopleSearch").onclick = () => $("peopleSearchPanel").classList.add("hidden");
+$("peopleSearchInput").oninput = renderPeopleSearch;
+$("closeDm").onclick = closeDirectMessage;
+$("dmSend").onclick = sendDirectMessage;
+$("dmInput").onkeydown = e => { if (e.key === "Enter") sendDirectMessage(); };
+
 // ---- join / leave ----
 $("joinBtn").onclick = async () => {
   unlock();
@@ -730,6 +981,12 @@ $("joinBtn").onclick = async () => {
     return;
   }
   me = n; profile.name = n; srv = selected; label = known[srv] || srv;
+  const selectedMeta = serverMeta(srv);
+  if (selectedMeta?.isPrivate && accountRole !== "owner" && selectedMeta.creatorUserId !== accountUser.id) {
+    if (!serverInviteToken) { $("err").textContent = "This server is private. Open its invite link to join."; return; }
+    const suppliedHash = await hashToken(serverInviteToken);
+    if (!selectedMeta.inviteHash || suppliedHash !== selectedMeta.inviteHash) { $("err").textContent = "That private server invite is invalid or expired."; return; }
+  }
   nr = null;
   const joinButton = $("joinBtn");
   joinButton.disabled = true;
@@ -757,7 +1014,7 @@ $("joinBtn").onclick = async () => {
       return;
     }
     await nr.presence({ name: n, userId: accountUser.id, avatar: profile.avatar || "◈", status: profile.status || "", bio: profile.bio || "", ownerPeerId: accountRole === "owner" ? peerId : null, role: accountRole });
-    await room.presence({ srv, label, name: n, ...(accountRole === "owner" ? { ownerPeerId: peerId } : {}) });
+    await room.presence({ srv, label, name: n, userId: accountUser.id, avatar: profile.avatar || "◈", status: profile.status || "", bio: profile.bio || "", role: accountRole, ...(accountRole === "owner" ? { ownerPeerId: peerId } : {}) });
     // Re-check after Presence has propagated so simultaneous attempts converge.
     await waitMs(700);
     if (!duplicateWinnerIsMe(n)) {
@@ -781,6 +1038,7 @@ $("joinBtn").onclick = async () => {
     localStorage.setItem("tg_profile", JSON.stringify(profile));
   } catch (e) {}
   $("title").textContent = "# " + label + "  (" + me + ")";
+  refreshServerOwnerButtons();
   $("log").innerHTML = ""; settled = false;
   $("login").classList.add("hidden"); $("chat").classList.remove("hidden");
   sys("ONLINE. Real players in this server can see your messages.");
@@ -829,10 +1087,12 @@ $("joinBtn").onclick = async () => {
 $("username").onkeydown = e => { if (e.key === "Enter") $("joinBtn").click(); };
 
 $("leaveBtn").onclick = async () => {
+  await closeDirectMessage();
   unsubs.forEach(u => u()); unsubs = [];
   if (nr) { try { await nr.leave(); } catch (e) {} nr = null; }
   if (room) { try { await room.presence({ srv: null, label: null, name: null }); } catch (e) {} }
-  iAmOwner = false; ownerPeerId = null; ownerUnlocked = false; $("modBtn").classList.add("hidden");
+  iAmOwner = accountRole === "owner"; ownerPeerId = null; ownerUnlocked = iAmOwner; $("modBtn").classList.toggle("hidden", !(accountRole === "owner" || accountRole === "admin"));
+  $("serverSettingsBtn").classList.add("hidden");
   $("chat").classList.add("hidden"); $("login").classList.remove("hidden"); $("tray").classList.add("hidden");
 };
 
