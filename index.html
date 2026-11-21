@@ -84,9 +84,9 @@
 <div id="login">
   <h1>&gt; TEXT GAME_</h1>
   <div style="border:1px solid #0f0;padding:12px;margin:12px 0 18px">
-    <div style="color:#0f0;margin-bottom:10px">// ACCOUNT ACCESS · SAVED ON THIS BROWSER</div>
+    <div style="color:#0f0;margin-bottom:10px">// ACCOUNT ACCESS</div>
     <input id="accountName" placeholder="account username" maxlength="20" autocomplete="username">
-    <input id="accountPassword" type="password" placeholder="password (at least 8 characters)" autocomplete="current-password">
+    <input id="accountPassword" type="password" placeholder="password (8+ characters)" autocomplete="current-password">
     <div style="display:flex;gap:8px"><button id="signUpBtn" type="button">SIGN UP</button><button id="logInBtn" type="button">LOG IN</button><button id="logOutBtn" type="button" class="hidden">LOG OUT</button></div>
     <div id="accountStatus" style="color:#888;font-size:12px;margin-top:8px">Create an account or log in to join.</div>
   </div>
@@ -154,6 +154,7 @@
   <button id="whiteTrickButton" type="button">CLICK</button>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 const $ = id => document.getElementById(id);
 const ANIMS = [["🎉","bounce"],["😂","shake"],["❤️","pulse"],["🌀","spin"],["🔥","pulse"],["👋","shake"],["😎","bounce"],["💀","shake"]];
@@ -207,217 +208,382 @@ $("newBtn").onclick = () => {
   known[k] = n.slice(0, 30); selected = k; $("newname").value = ""; renderServers();
 };
 
-// ---- GITHUB-ONLY LOCAL MODE (NO EXTERNAL BACKEND) ----
-// Accounts and roles are saved in this browser. BroadcastChannel lets tabs
-// opened on the same GitHub Pages origin talk to each other. It is NOT
-// cross-device or internet-wide multiplayer.
+// ---- REAL ONLINE MULTIPLAYER (Supabase Realtime only) ----
+// Supabase is used only for presence and broadcast; account login is local. Use a browser-safe Publishable key.
+const SUPABASE_URL = "https://wohektztnowdhcjqiztf.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_jlG9K3HW9aWCRk8Aa4Re4w_1EUeHkzP";
+
 let lobbyChannel = null;
-let onlineReady = true;
-let onlineClient = null; // deliberately unused: there is no external account service
+let onlineReady = false;
+let onlineClient = null;
 let accountUser = null;
 let accountRole = "player";
 let accountUsername = "";
-const ACCOUNT_KEY = "tg_local_accounts_v1";
-const SESSION_KEY = "tg_local_session_v1";
-const OWNER_USERNAME = "theowner1010fav5";
 
-function readAccounts() {
-  try { return JSON.parse(localStorage.getItem(ACCOUNT_KEY) || "{}"); }
-  catch (e) { return {}; }
+// Local accounts: passwords are PBKDF2-hashed in this browser. Supabase is used
+// only for Realtime multiplayer (presence and broadcast), never for authentication.
+const LOCAL_ACCOUNTS_KEY = "tg_local_accounts_v1";
+const LOCAL_SESSION_KEY = "tg_local_session_v1";
+const OWNER_USERNAME = "THEOWNER1010FAV5";
+function readLocalAccounts() {
+  try { const value = JSON.parse(localStorage.getItem(LOCAL_ACCOUNTS_KEY) || "[]"); return Array.isArray(value) ? value : []; }
+  catch (e) { return []; }
 }
-function writeAccounts(accounts) {
-  localStorage.setItem(ACCOUNT_KEY, JSON.stringify(accounts));
+function writeLocalAccounts(accounts) { localStorage.setItem(LOCAL_ACCOUNTS_KEY, JSON.stringify(accounts)); }
+function bytesToHex(bytes) { return Array.from(new Uint8Array(bytes), b => b.toString(16).padStart(2, "0")).join(""); }
+async function passwordHash(password, saltHex) {
+  if (!crypto?.subtle) throw new Error("Secure password storage needs HTTPS. Open the game through GitHub Pages.");
+  const salt = new Uint8Array(saltHex.match(/.{2}/g).map(x => parseInt(x, 16)));
+  const material = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveBits"]);
+  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", salt, iterations: 150000, hash: "SHA-256" }, material, 256);
+  return bytesToHex(bits);
 }
-function setAccountStatus(message, isError=false) {
-  const el = $("accountStatus");
-  if (el) { el.textContent = message; el.style.color = isError ? "#f66" : "#0f0"; }
-}
-function makeSalt() {
-  const bytes = crypto.getRandomValues(new Uint8Array(16));
-  return Array.from(bytes, b => b.toString(16).padStart(2,"0")).join("");
-}
-async function passwordHash(password, salt) {
-  if (!crypto.subtle) throw new Error("Secure password storage needs HTTPS. Open your game through GitHub Pages.");
-  const enc = new TextEncoder();
-  const material = await crypto.subtle.importKey("raw", enc.encode(password), "PBKDF2", false, ["deriveBits"]);
-  const bits = await crypto.subtle.deriveBits({ name:"PBKDF2", salt:enc.encode(salt), iterations:120000, hash:"SHA-256" }, material, 256);
-  return Array.from(new Uint8Array(bits), b => b.toString(16).padStart(2,"0")).join("");
-}
-function updateRoleUI() {
-  $("logOutBtn").classList.toggle("hidden", !accountUser);
+function accountById(id) { return readLocalAccounts().find(a => a.id === id) || null; }
+async function loadAccountRole() {
+  if (!accountUser) { accountRole = "player"; return; }
+  const record = accountById(accountUser.id);
+  if (!record) { accountUser = null; accountRole = "player"; accountUsername = ""; return; }
+  accountRole = record.role || "player";
+  accountUsername = record.username;
   iAmOwner = accountRole === "owner";
   ownerUnlocked = iAmOwner;
   $("modBtn").classList.toggle("hidden", !(accountRole === "owner" || accountRole === "admin"));
+  $("logOutBtn").classList.remove("hidden");
+  $("signUpBtn").classList.add("hidden");
+  $("logInBtn").classList.add("hidden");
+}
+function setAccountStatus(message, isError=false) {
+  const el = $("accountStatus"); if (el) { el.textContent = message; el.style.color = isError ? "#f66" : "#0f0"; }
 }
 async function signUpAccount() {
-  const name = $("accountName").value.trim();
-  const pass = $("accountPassword").value;
+  const name = $("accountName").value.trim(); const pass = $("accountPassword").value;
   if (!/^[a-zA-Z0-9_]{3,20}$/.test(name)) return setAccountStatus("Username must be 3–20 letters, numbers, or underscores.", true);
   if (pass.length < 8) return setAccountStatus("Password must be at least 8 characters.", true);
-  const accounts = readAccounts(), key = name.toLowerCase();
-  if (accounts[key]) return setAccountStatus("That username already exists on this browser. Log in instead.", true);
-  const salt = makeSalt();
+  const accounts = readLocalAccounts();
+  if (accounts.some(a => String(a.username).toLowerCase() === name.toLowerCase())) return setAccountStatus("That username already has an account. Please log in.", true);
+  const salt = bytesToHex(crypto.getRandomValues(new Uint8Array(16)));
   const hash = await passwordHash(pass, salt);
-  // Local-only owner identity. This role is not protected against someone editing browser data.
-  const role = key === OWNER_USERNAME ? "owner" : "player";
-  accounts[key] = { username:name, salt, hash, role, id: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random()) };
-  writeAccounts(accounts);
-  accountUser = { id:accounts[key].id, username:name };
-  accountUsername = name; accountRole = role;
-  localStorage.setItem(SESSION_KEY, key);
+  // The special owner username receives local owner features on this browser.
+  // This is a convenience role, not server-secure identity verification.
+  const role = name.toLowerCase() === OWNER_USERNAME.toLowerCase() ? "owner" : "player";
+  const record = { id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random(), username: name, salt, hash, role, createdAt: Date.now() };
+  accounts.push(record); writeLocalAccounts(accounts);
+  accountUser = { id: record.id, username: name }; accountUsername = name; accountRole = role;
+  localStorage.setItem(LOCAL_SESSION_KEY, record.id);
+  await loadAccountRole();
   $("username").value = name;
-  updateRoleUI();
-  setAccountStatus("Account created! Logged in as " + name + (role === "owner" ? " · OWNER ★" : "") + ". Saved on this browser.");
+  $("accountPassword").value = "";
+  setAccountStatus("Account created. Logged in as " + name + (accountRole === "owner" ? " · OWNER" : ""));
 }
 async function logInAccount() {
-  const name = $("accountName").value.trim(), pass = $("accountPassword").value;
+  const name = $("accountName").value.trim(); const pass = $("accountPassword").value;
   if (!name || !pass) return setAccountStatus("Enter your username and password.", true);
-  const accounts = readAccounts(), key = name.toLowerCase(), account = accounts[key];
-  if (!account) return setAccountStatus("Account not found on this browser. Sign up first.", true);
-  const hash = await passwordHash(pass, account.salt);
-  if (hash !== account.hash) return setAccountStatus("Incorrect password.", true);
-  accountUser = { id:account.id, username:account.username };
-  accountUsername = account.username; accountRole = account.role || "player";
-  localStorage.setItem(SESSION_KEY, key);
+  const record = readLocalAccounts().find(a => String(a.username).toLowerCase() === name.toLowerCase());
+  if (!record) return setAccountStatus("Account not found on this browser. Sign up first.", true);
+  const hash = await passwordHash(pass, record.salt);
+  if (hash !== record.hash) return setAccountStatus("Incorrect password.", true);
+  accountUser = { id: record.id, username: record.username }; accountUsername = record.username;
+  localStorage.setItem(LOCAL_SESSION_KEY, record.id);
+  await loadAccountRole();
   $("username").value = accountUsername;
-  updateRoleUI();
-  setAccountStatus("Logged in as " + accountUsername + (accountRole === "owner" ? " · OWNER ★" : accountRole === "admin" ? " · ADMIN" : "") + ".");
+  $("accountPassword").value = "";
+  setAccountStatus("Logged in as " + accountUsername + (accountRole === "owner" ? " · OWNER" : accountRole === "admin" ? " · ADMIN" : ""));
 }
-function restoreLocalSession() {
-  try {
-    const key = localStorage.getItem(SESSION_KEY), account = key && readAccounts()[key];
-    if (!account) return;
-    accountUser = { id:account.id, username:account.username };
-    accountUsername = account.username; accountRole = account.role || "player";
-    $("accountName").value = accountUsername;
-    $("username").value = accountUsername;
-    updateRoleUI();
-    setAccountStatus("Session restored for " + accountUsername + ".");
-  } catch (e) { setAccountStatus("Could not restore your local session.", true); }
+function updateLocalAccountRole(userId, role) {
+  const accounts = readLocalAccounts();
+  const record = accounts.find(a => a.id === userId);
+  if (!record) return false;
+  record.role = role; writeLocalAccounts(accounts);
+  if (accountUser?.id === userId) {
+    accountRole = role; iAmOwner = role === "owner"; ownerUnlocked = iAmOwner;
+    $("modBtn").classList.toggle("hidden", !(role === "owner" || role === "admin"));
+    setAccountStatus("Your role is now " + role.toUpperCase() + ".");
+  }
+  return true;
 }
 
 const peerId = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random());
 const lobbyListeners = [];
-const cleanUsername = value => String(value || "").trim().toLocaleLowerCase();
-const localLobbyPeers = new Map();
-const activeRoomBuses = new Set();
-let lobbyBus = null;
-try {
-  lobbyBus = new BroadcastChannel("text-game-local-lobby-v1");
-  lobbyBus.onmessage = event => {
-    const msg = event.data || {};
-    if (msg.type === "presence" && msg.peerId && msg.peerId !== peerId) localLobbyPeers.set(msg.peerId, msg.presence || {});
-    if (msg.type === "leave" && msg.peerId) localLobbyPeers.delete(msg.peerId);
-    const peers = peersFromState(lobbyChannel.presenceState());
-    counts = {};
-    peers.forEach(p => { const id=p.presence?.srv; if (id) counts[id]=(counts[id]||0)+1; });
-    renderServers();
-    lobbyListeners.forEach(fn => fn({ peers }));
-  };
-} catch (e) {}
-lobbyChannel = {
-  presenceState() {
-    const state = {};
-    localLobbyPeers.forEach((presence,id) => { state[id]=[presence]; });
-    if (localLobbyPresence) state[peerId]=[localLobbyPresence];
-    return state;
-  },
-  async track(data) {
-    localLobbyPresence = { ...data, peerId };
-    try { lobbyBus?.postMessage({ type:"presence", peerId, presence:localLobbyPresence }); } catch(e) {}
-  },
-  async untrack() {
-    localLobbyPresence = null;
-    try { lobbyBus?.postMessage({ type:"leave", peerId }); } catch(e) {}
-  }
-};
-let localLobbyPresence = null;
-window.addEventListener("beforeunload", () => {
-  try { lobbyBus?.postMessage({ type:"leave", peerId }); } catch(e) {}
-  for (const bus of activeRoomBuses) { try { bus.postMessage({ type:"leave", peerId }); bus.close(); } catch(e) {} }
-});
+
+// Usernames are unique across all currently connected servers (case-insensitive).
+function cleanUsername(value) { return String(value || "").trim().toLocaleLowerCase(); }
 function lobbyUsernamePeers(name) {
   const wanted = cleanUsername(name);
-  if (!wanted) return [];
-  return peersFromState(lobbyChannel.presenceState()).filter(p => !p.isMe && cleanUsername(p.presence?.name) === wanted);
+  if (!wanted || !lobbyChannel) return [];
+  return peersFromState(lobbyChannel.presenceState()).filter(p =>
+    !p.isMe && cleanUsername(p.presence?.name) === wanted
+  );
 }
 function usernameTaken(name) { return lobbyUsernamePeers(name).length > 0; }
 function duplicateWinnerIsMe(name) {
+  // If two people submit the same name at nearly the same time, both clients
+  // see the same sorted peer IDs and only the first one keeps the username.
   const ids = [peerId, ...lobbyUsernamePeers(name).map(p => p.id)].sort();
   return ids[0] === peerId;
 }
+function waitMs(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 function globalOwnerPeers() {
+  if (!lobbyChannel) return [];
   return peersFromState(lobbyChannel.presenceState()).filter(p => !p.isMe && p.presence?.ownerPeerId);
 }
 async function claimGlobalOwner() {
-  if (accountRole !== "owner") { sys("Owner access belongs to the reserved owner account."); return false; }
-  if (!nr || !room) return false;
+  // Owner status is granted only by the protected Supabase database role.
+  if (!accountUser || accountRole !== "owner") { sys("Owner access is reserved for the configured account."); return false; }
+  if (!nr || !room || !lobbyChannel) return false;
+  if (globalOwnerPeers().length) {
+    sys("The global owner role is already claimed by another online player.");
+    return false;
+  }
+  // Publish the claim to the all-game lobby, not just this server.
+  await nr.presence({ name: me, avatar: profile.avatar || "◈", status: profile.status || "", bio: profile.bio || "", ownerPeerId: peerId });
+  await room.presence({ srv, label, name: me, ownerPeerId: peerId });
+  await waitMs(1100);
+  const claims = [peerId, ...globalOwnerPeers().map(p => p.id)].sort();
+  if (claims[0] !== peerId) {
+    await nr.presence({ name: me, avatar: profile.avatar || "◈", status: profile.status || "", bio: profile.bio || "", ownerPeerId: null });
+    await room.presence({ srv, label, name: me });
+    sys("Someone else claimed the global owner role first.");
+    return false;
+  }
   ownerUnlocked = true; iAmOwner = true; ownerPeerId = peerId;
-  await nr.presence({ name:me, avatar:profile.avatar||"◈", status:profile.status||"", bio:profile.bio||"", ownerPeerId:peerId, role:"owner" });
-  await room.presence({ srv, label, name:me, ownerPeerId:peerId, role:"owner" });
   $("modBtn").classList.remove("hidden");
-  sys("LOCAL OWNER ACCESS ENABLED.");
+  sys("OWNER ACCESS VERIFIED.");
   return true;
 }
+
 function peersFromState(state) {
   const result = [];
-  Object.entries(state || {}).forEach(([key, entries]) => (entries || []).forEach(p => result.push({
-    id:key, isMe:key===peerId || p.peerId===peerId, presence:p||{}
-  })));
+  Object.entries(state || {}).forEach(([key, entries]) => {
+    (entries || []).forEach(p => result.push({
+      id: key,
+      isMe: key === peerId || p.peerId === peerId,
+      presence: p || {}
+    }));
+  });
   return result;
 }
-function waitMs(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+
+function waitForSubscribe(channel, timeoutMs = 15000) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => finish(new Error("Connection timed out")), timeoutMs);
+    function finish(err) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      err ? reject(err) : resolve();
+    }
+    channel.subscribe(status => {
+      if (status === "SUBSCRIBED") finish();
+      else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+        finish(new Error("Supabase Realtime status: " + status));
+      }
+    });
+  });
+}
 
 async function connectOnline() {
-  const status = $("status"), joinButton = $("joinBtn");
-  joinButton.disabled = false; joinButton.textContent = "JOIN";
-  status.textContent = "LOCAL MODE: accounts are saved on this browser. Multiplayer works only between tabs on this same browser/device.";
-  room = {
-    onPeers(fn) { lobbyListeners.push(fn); fn({ peers:peersFromState(lobbyChannel.presenceState()) }); },
-    async presence(data) {
-      if (data?.srv) await lobbyChannel.track(data);
-      else await lobbyChannel.untrack();
-    },
-    async join(channelName) {
-      const bus = new BroadcastChannel("text-game-local-" + channelName);
-      activeRoomBuses.add(bus);
-      const handlers = { chat:[], gif:[], kick:[], ban:[], clear:[], peers:[] };
-      const peers = new Map();
-      let myPresence = null;
-      const snapshot = () => {
-        const all = [{ id:peerId, isMe:true, presence:myPresence||{peerId} }, ...Array.from(peers.entries()).map(([id,presence])=>({id,isMe:false,presence}))];
-        return all;
-      };
-      const notify = (joined=[],left=[]) => handlers.peers.forEach(fn=>fn({peers:snapshot(),joined,left}));
-      bus.onmessage = event => {
-        const msg=event.data||{};
-        if (msg.peerId===peerId) return;
-        if (msg.type==="hello" && myPresence) bus.postMessage({type:"presence",peerId,presence:myPresence});
-        else if (msg.type==="presence" && msg.peerId) { const was=peers.has(msg.peerId); peers.set(msg.peerId,msg.presence||{}); notify(was?[]:[{id:msg.peerId,isMe:false,presence:msg.presence||{}}],[]); }
-        else if (msg.type==="leave" && msg.peerId) { const old=peers.get(msg.peerId); peers.delete(msg.peerId); if(old)notify([],[{id:msg.peerId,isMe:false,presence:old}]); }
-        else if (msg.type==="event" && handlers[msg.topic]) handlers[msg.topic].forEach(fn=>fn({data:msg.data||{},isMe:false}));
-      };
-      bus.postMessage({type:"hello",peerId});
-      return {
-        peers:snapshot,
-        async presence(data) { myPresence={...data,peerId}; bus.postMessage({type:"presence",peerId,presence:myPresence}); notify(); },
-        on(topic,fn) { if(!handlers[topic])return()=>{}; handlers[topic].push(fn); return()=>{handlers[topic]=handlers[topic].filter(x=>x!==fn);}; },
-        onPeers(fn) { handlers.peers.push(fn); fn({peers:snapshot(),joined:[],left:[]}); return()=>{handlers.peers=handlers.peers.filter(x=>x!==fn);}; },
-        async emit(topic,data) { if(!["chat","gif","kick","ban","clear"].includes(topic))throw new Error("Unknown message type"); bus.postMessage({type:"event",topic,data:{...data,peerId}}); },
-        async leave() { bus.postMessage({type:"leave",peerId}); activeRoomBuses.delete(bus); bus.close(); }
-      };
-    }
-  };
-  onlineReady = true;
+  const status = $("status");
+  const joinButton = $("joinBtn");
+  joinButton.disabled = true;
+  joinButton.textContent = "CONNECTING...";
+  status.textContent = "Connecting to multiplayer...";
+
+  if (!SUPABASE_URL.startsWith("https://") || !SUPABASE_ANON_KEY.startsWith("sb_publishable_") || !window.supabase?.createClient) {
+    status.textContent = "Multiplayer setup problem: check the Supabase URL, publishable key, and internet connection.";
+    joinButton.disabled = false;
+    joinButton.textContent = "JOIN";
+    return;
+  }
+
+  try {
+    onlineClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      realtime: { params: { eventsPerSecond: 10 } }
+    });
+
+    lobbyChannel = onlineClient.channel("text-game-public-lobby", {
+      config: { presence: { key: peerId } }
+    });
+
+    lobbyChannel.on("presence", { event: "sync" }, () => {
+      const peers = peersFromState(lobbyChannel.presenceState());
+      counts = {};
+      peers.forEach(p => {
+        const serverId = p.presence?.srv;
+        if (typeof serverId === "string" && /^[a-z0-9-]{1,30}$/.test(serverId)) {
+          counts[serverId] = (counts[serverId] || 0) + 1;
+          if (!known[serverId] && typeof p.presence.label === "string") {
+            known[serverId] = p.presence.label.slice(0, 30);
+          }
+        }
+      });
+      renderServers();
+      lobbyListeners.forEach(fn => fn({ peers }));
+    });
+
+    await waitForSubscribe(lobbyChannel);
+
+    // The multiplayer adapter is only exposed after the lobby connection is live.
+    room = {
+      onPeers(fn) {
+        lobbyListeners.push(fn);
+        fn({ peers: peersFromState(lobbyChannel.presenceState()) });
+      },
+      async presence(data) {
+        if (data?.srv) await lobbyChannel.track({ ...data, peerId });
+        else await lobbyChannel.untrack();
+      },
+      async join(channelName) {
+        const channel = onlineClient.channel("text-game-" + channelName, {
+          config: {
+            presence: { key: peerId },
+            broadcast: { self: false, ack: true }
+          }
+        });
+        const handlers = { chat: [], gif: [], kick: [], ban: [], clear: [], role: [], peers: [] };
+        let currentPeers = [];
+        let presenceSynced = false;
+        let resolveSync;
+        const syncReady = new Promise(resolve => { resolveSync = resolve; });
+
+        const refreshPeers = () => {
+          currentPeers = peersFromState(channel.presenceState());
+          handlers.peers.forEach(fn => fn({ peers: currentPeers, joined: [], left: [] }));
+        };
+
+        channel.on("broadcast", { event: "chat" }, ({ payload }) => {
+          handlers.chat.forEach(fn => fn({ data: payload, isMe: payload?.peerId === peerId }));
+        });
+        channel.on("broadcast", { event: "gif" }, ({ payload }) => {
+          handlers.gif.forEach(fn => fn({ data: payload, isMe: payload?.peerId === peerId }));
+        });
+        channel.on("broadcast", { event: "clear" }, ({ payload }) => {
+          // Clear the visible chat for everyone currently in this server.
+          handlers.clear.forEach(fn => fn(payload || {}));
+        });
+        async function removeTarget(message, banned) {
+          if (message?.targetPeerId !== peerId || !message?.ownerPeerId) return;
+          if (banned) addLocalBan(srv, peerId);
+          sys(banned ? "You were banned from this server by its owner." : "You were kicked from this server by its owner.");
+          setTimeout(async () => {
+            try { await channel.untrack(); await onlineClient.removeChannel(channel); } catch (e) {}
+            nr = null; unsubs.forEach(fn => fn()); unsubs = [];
+            $("chat").classList.add("hidden"); $("login").classList.remove("hidden");
+            $("err").textContent = banned ? "You are banned from this server on this browser." : "You were kicked from that server.";
+          }, 700);
+        }
+        channel.on("broadcast", { event: "kick" }, ({ payload }) => removeTarget(payload, false));
+        channel.on("broadcast", { event: "ban" }, ({ payload }) => removeTarget(payload, true));
+        channel.on("broadcast", { event: "role" }, async ({ payload }) => {
+          if (payload?.targetPeerId !== peerId || !payload?.targetUserId || !payload?.ownerPeerId || !["player", "admin"].includes(payload.role)) return;
+          // Role changes are delivered through Realtime; the receiving browser saves its own local role.
+          if (!updateLocalAccountRole(payload.targetUserId, payload.role)) return;
+          try {
+            if (nr) await nr.presence({ name: me, userId: accountUser.id, avatar: profile.avatar || "◈", status: profile.status || "", bio: profile.bio || "", role: accountRole });
+            if (room) await room.presence({ srv, label, name: me });
+          } catch (e) {}
+          handlers.role.forEach(fn => fn(payload));
+        });
+        channel.on("presence", { event: "sync" }, () => {
+          presenceSynced = true;
+          refreshPeers();
+          resolveSync();
+        });
+        channel.on("presence", { event: "join" }, ({ newPresences }) => {
+          currentPeers = peersFromState(channel.presenceState());
+          const joined = (newPresences || []).map(p => ({
+            presence: p,
+            isMe: p.peerId === peerId
+          }));
+          handlers.peers.forEach(fn => fn({ peers: currentPeers, joined, left: [] }));
+        });
+        channel.on("presence", { event: "leave" }, ({ leftPresences }) => {
+          currentPeers = peersFromState(channel.presenceState());
+          const left = (leftPresences || []).map(p => ({
+            presence: p,
+            isMe: p.peerId === peerId
+          }));
+          handlers.peers.forEach(fn => fn({ peers: currentPeers, joined: [], left }));
+        });
+
+        try {
+          await waitForSubscribe(channel);
+          // Initial presence sync normally arrives with SUBSCRIBED. Don't fail a
+          // valid room if the sync callback is a little slower; peers() reads fresh state.
+          if (!presenceSynced) await Promise.race([syncReady, new Promise(resolve => setTimeout(resolve, 1800))]);
+          currentPeers = peersFromState(channel.presenceState());
+        } catch (err) {
+          await onlineClient.removeChannel(channel);
+          throw err;
+        }
+
+        return {
+          peers: () => peersFromState(channel.presenceState()),
+          async presence(data) {
+            await channel.track({ ...data, peerId });
+            currentPeers = peersFromState(channel.presenceState());
+            handlers.peers.forEach(fn => fn({ peers: currentPeers, joined: [], left: [] }));
+          },
+          on(topic, fn) {
+            if (!handlers[topic]) return () => {};
+            handlers[topic].push(fn);
+            return () => { handlers[topic] = handlers[topic].filter(x => x !== fn); };
+          },
+          onPeers(fn) {
+            handlers.peers.push(fn);
+            fn({ peers: peersFromState(channel.presenceState()), joined: [], left: [] });
+            return () => { handlers.peers = handlers.peers.filter(x => x !== fn); };
+          },
+          async emit(topic, data) {
+            if (topic !== "chat" && topic !== "gif" && topic !== "kick" && topic !== "ban" && topic !== "clear" && topic !== "role") throw new Error("Unknown message type");
+            const result = await channel.send({
+              type: "broadcast",
+              event: topic,
+              payload: { ...data, peerId }
+            });
+            if (result !== "ok") throw new Error("Broadcast failed: " + result);
+          },
+          async leave() {
+            try { await channel.untrack(); } catch (e) {}
+            await onlineClient.removeChannel(channel);
+          }
+        };
+      }
+    };
+
+    onlineReady = true;
+    status.textContent = "ONLINE SERVICE CONNECTED. Choose a server and join your friend.";
+    joinButton.disabled = false;
+    joinButton.textContent = "JOIN";
+  } catch (err) {
+    console.error("Supabase connection failed:", err);
+    room = null;
+    onlineReady = false;
+    status.textContent = "Can't connect to Supabase: " + (err?.message || "check internet, project URL, key, and Realtime");
+    joinButton.disabled = false;
+    joinButton.textContent = "RETRY / JOIN";
+  }
 }
 connectOnline();
 $("signUpBtn").onclick = async () => { try { await signUpAccount(); } catch(e) { setAccountStatus(e.message || "Sign up failed", true); } };
 $("logInBtn").onclick = async () => { try { await logInAccount(); } catch(e) { setAccountStatus(e.message || "Log in failed", true); } };
-$("logOutBtn").onclick = () => {
-  localStorage.removeItem(SESSION_KEY); accountUser=null; accountRole="player"; accountUsername=""; iAmOwner=false; ownerUnlocked=false;
-  updateRoleUI(); setAccountStatus("Logged out.");
-};
-restoreLocalSession();
+$("logOutBtn").onclick = () => { localStorage.removeItem(LOCAL_SESSION_KEY); accountUser=null; accountRole="player"; accountUsername=""; iAmOwner=false; ownerUnlocked=false; $("modBtn").classList.add("hidden"); $("logOutBtn").classList.add("hidden"); $("signUpBtn").classList.remove("hidden"); $("logInBtn").classList.remove("hidden"); setAccountStatus("Logged out."); };
+
+// Restore the local-only account session; no Supabase Auth is contacted.
+(async () => {
+  try {
+    const id = localStorage.getItem(LOCAL_SESSION_KEY);
+    const record = id ? accountById(id) : null;
+    if (record) {
+      accountUser = { id: record.id, username: record.username };
+      accountUsername = record.username;
+      await loadAccountRole();
+      $("accountName").value = accountUsername;
+      $("username").value = accountUsername;
+      setAccountStatus("Session restored for " + accountUsername + " (this browser)");
+    }
+  } catch(e) { setAccountStatus(e.message || "Could not restore local session", true); }
+})();
 
 // ---- sounds (generated with Web Audio, no files) ----
 let ac = null, muted = false;
@@ -560,14 +726,14 @@ $("joinBtn").onclick = async () => {
   if (!selected) { $("err").textContent = "Pick or create a server."; return; }
   $("err").textContent = "";
   if (!onlineReady || !room) {
-    $("err").textContent = "Local room is unavailable in this browser. Try opening the game on GitHub Pages in a modern browser.";
+    $("err").textContent = "Multiplayer isn't connected yet. Check the connection status below and try again.";
     return;
   }
   me = n; profile.name = n; srv = selected; label = known[srv] || srv;
   nr = null;
   const joinButton = $("joinBtn");
   joinButton.disabled = true;
-  if (getLocalBans(srv).includes(accountUser?.id || peerId)) {
+  if (getLocalBans(srv).includes(peerId)) {
     $("err").textContent = "You are banned from this server on this browser.";
     joinButton.disabled = false; return;
   }
@@ -582,7 +748,7 @@ $("joinBtn").onclick = async () => {
     const existingPeers = nr.peers().filter(p => !p.isMe);
     const existingOwner = existingPeers.find(p => p.presence?.ownerPeerId);
     ownerPeerId = existingOwner?.presence?.ownerPeerId || null;
-    iAmOwner = accountRole === "owner";
+    iAmOwner = accountRole === "owner" || accountRole === "admin";
     const takenInRoom = nr.peers().some(p => !p.isMe && cleanUsername(p.presence?.name) === cleanUsername(n));
     if (takenInRoom || usernameTaken(n)) {
       await nr.leave(); nr = null;
@@ -604,7 +770,7 @@ $("joinBtn").onclick = async () => {
   } catch (e) {
     console.error("Room join failed:", e);
     if (nr) { try { await nr.leave(); } catch (_) {} nr = null; }
-    $("err").textContent = "Couldn't join local room: " + (e?.message || "check connection and try again");
+    $("err").textContent = "Couldn't join online server: " + (e?.message || "check connection and try again");
     joinButton.disabled = false;
     return;
   }
@@ -617,7 +783,7 @@ $("joinBtn").onclick = async () => {
   $("title").textContent = "# " + label + "  (" + me + ")";
   $("log").innerHTML = ""; settled = false;
   $("login").classList.add("hidden"); $("chat").classList.remove("hidden");
-  sys("LOCAL ROOM. Other tabs on this same browser and device can see your messages. This is not internet-wide multiplayer.");
+  sys("ONLINE. Real players in this server can see your messages.");
   if (nr) {
     unsubs.push(nr.on("chat", m => showText(m, m.isMe)));
     unsubs.push(nr.on("gif", m => showGif(m, m.isMe)));
@@ -641,7 +807,12 @@ $("joinBtn").onclick = async () => {
           const ban = document.createElement("button"); ban.textContent = "BAN"; ban.style.borderColor = "#ff5555"; ban.style.color = "#ff7777";
           ban.onclick = async () => { if ((accountRole !== "owner" && accountRole !== "admin") || p.presence?.role === "owner") return; if (confirm("BAN " + name + " from this server on this browser?")) { try { await nr.emit("ban", { targetPeerId: p.id, ownerPeerId: peerId, ownerName: me }); sys("Ban request sent for " + name + "."); } catch (e) { sys("Ban failed: " + e.message); } } };
           const adminBtn = document.createElement("button"); adminBtn.textContent = p.presence?.role === "admin" ? "REMOVE ADMIN" : "GIVE ADMIN"; adminBtn.style.borderColor = "#0f0"; adminBtn.style.color = "#0f0";
-          adminBtn.onclick = async () => { if (accountRole !== "owner" || !accountUser) return; try { const targetName = cleanUsername(p.presence?.name); const accounts = readAccounts(); if (!accounts[targetName]) throw new Error("That player account is not saved in this browser."); accounts[targetName].role = p.presence?.role === "admin" ? "player" : "admin"; writeAccounts(accounts); sys("Local admin role updated. They must log out and back in to refresh it."); } catch(e) { sys("Admin update failed: " + (e.message || "database setup required")); } };
+          adminBtn.onclick = async () => {
+            if (accountRole !== "owner" || !accountUser || !p.presence?.userId) return;
+            const nextRole = p.presence?.role === "admin" ? "player" : "admin";
+            try { await nr.emit("role", { targetPeerId: p.id, targetUserId: p.presence.userId, role: nextRole, ownerPeerId: peerId }); sys("Role update sent. The player may need to rejoin if their list does not refresh."); }
+            catch(e) { sys("Admin update failed: " + (e.message || "Realtime broadcast failed")); }
+          };
           actions.append(kick, ban); if (accountRole === "owner") actions.append(adminBtn); row.appendChild(actions);
         }
         $("modUsers").appendChild(row);
@@ -668,7 +839,8 @@ $("leaveBtn").onclick = async () => {
 // ---- send ----
 async function out(topic, data) {
   if (!nr) { sys("You're not connected to a multiplayer server. Rejoin to send messages."); return; }
-  // BroadcastChannel sends to other tabs; render the sender copy locally.
+  // Supabase Broadcast is configured with self:false, so render the sender's
+  // copy locally and send one copy to everyone else in the room.
   const outgoing = { ...data, peerId, ...(iAmOwner ? { ownerPeerId: peerId } : {}) };
   const localMessage = { data: outgoing };
   if (topic === "chat") showText(localMessage, true);
