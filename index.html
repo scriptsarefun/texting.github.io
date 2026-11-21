@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+  <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -32,8 +32,37 @@
   #log { flex:1; overflow-y:auto; padding:14px; }
   .msg { margin-bottom:10px; word-wrap:break-word; }
   .who { color:var(--green); } .me .who { color:var(--blue); }
+  .owner-rainbow { font-weight:bold; background:linear-gradient(90deg,#ff3b3b,#ff9d00,#fff000,#39ff72,#36c8ff,#b66bff,#ff4ac6); -webkit-background-clip:text; background-clip:text; color:transparent !important; animation: ownerGlow 2.2s linear infinite; text-shadow:0 0 9px #fff4; }
+  @keyframes ownerGlow { 0%{filter:hue-rotate(0deg)} 100%{filter:hue-rotate(360deg)} }
+  .matrix-user .owner-rainbow { font-size:14px; }
   .sys { color:var(--dim); font-style:italic; margin-bottom:10px; }
   .anim { display:inline-block; font-size:56px; margin-top:6px; }
+  .chatgif { display:block; max-width:min(320px,80vw); max-height:240px; margin-top:8px; border:1px solid #333; }
+  #modPanel { position:fixed; z-index:5; right:12px; top:58px; width:min(300px,90vw); max-height:65vh; overflow:auto; background:#080808; border:1px solid var(--green); padding:12px; box-shadow:0 0 20px #0f04; }
+  #modPanel h3 { color:var(--green); margin:0 0 10px; }
+  .moduser { display:flex; justify-content:space-between; align-items:center; gap:8px; margin:8px 0; }
+  .moduser button { padding:5px 8px; }
+
+  .matrix-panel { position:fixed; z-index:20; right:12px; top:62px; width:min(340px, calc(100vw - 24px)); max-height:72vh; overflow:auto; padding:14px; background:rgba(0,8,2,.97); border:1px solid #00ff66; box-shadow:0 0 10px #00ff6677, inset 0 0 22px #00ff6614; color:#b7ffc9; }
+  .matrix-panel h3 { margin:0 0 12px; color:#00ff66; letter-spacing:2px; text-shadow:0 0 8px #00ff66; }
+  .matrix-panel input, .matrix-panel select { width:100%; margin:5px 0 10px; background:#000; color:#b7ffc9; border:1px solid #087b36; padding:9px; font:inherit; }
+  .matrix-panel .panel-actions { display:flex; gap:8px; flex-wrap:wrap; }
+  .matrix-panel .panel-actions button { flex:1; }
+  .matrix-user { display:flex; justify-content:space-between; align-items:center; gap:8px; border-top:1px solid #124d2a; padding:9px 0; font-size:13px; }
+  .matrix-user button { border-color:#ff5555; color:#ff7777; padding:5px 8px; }
+  .matrix-user button:hover { background:#ff5555; color:#000; }
+  .matrix-tag { color:#00ff66; font-size:11px; letter-spacing:1px; }
+  #profileBadge { color:#00ff66; margin-right:5px; text-shadow:0 0 8px #00ff66; }
+  .matrix-close { float:right; padding:3px 8px; }
+  .profile-preview { display:flex; align-items:center; gap:12px; margin:10px 0; padding:10px; border:1px dashed #087b36; background:repeating-linear-gradient(0deg,#00ff6608 0 1px,transparent 1px 4px); }
+  .profile-avatar { font-size:36px; width:48px; text-align:center; filter:drop-shadow(0 0 7px #00ff66); }
+  .profile-link { display:block; width:100%; text-align:left; border:0; border-bottom:1px solid #12351f; padding:7px 3px; background:transparent; color:#b7ffc9; }
+  .profile-link:hover { background:#00ff6620; color:#00ff66; }
+  .profile-bio { white-space:pre-wrap; overflow-wrap:anywhere; padding:10px; border:1px solid #124d2a; background:#001006; min-height:42px; margin:8px 0 12px; }
+  #whiteTrickScreen { position:fixed; inset:0; z-index:999999; display:flex; align-items:center; justify-content:center; background:#fff; }
+  #whiteTrickScreen.hidden { display:none !important; }
+  #whiteTrickButton { background:#fff; color:#000; border:2px solid #000; padding:14px 28px; font:16px "Courier New",monospace; letter-spacing:2px; }
+  #whiteTrickButton:hover { background:#f3f3f3; color:#000; }
 
   #tray { border-top:1px solid var(--line); padding:10px; background:#080808; }
   #gifs { display:flex; gap:10px; overflow-x:auto; }
@@ -54,7 +83,14 @@
 
 <div id="login">
   <h1>&gt; TEXT GAME_</h1>
-  <input id="username" placeholder="username" maxlength="20" autocomplete="off">
+  <div style="border:1px solid #0f0;padding:12px;margin:12px 0 18px">
+    <div style="color:#0f0;margin-bottom:10px">// ACCOUNT ACCESS</div>
+    <input id="accountName" placeholder="account username" maxlength="20" autocomplete="username">
+    <input id="accountPassword" type="password" placeholder="password (at least 8 characters)" autocomplete="current-password">
+    <div style="display:flex;gap:8px"><button id="signUpBtn" type="button">SIGN UP</button><button id="logInBtn" type="button">LOG IN</button><button id="logOutBtn" type="button" class="hidden">LOG OUT</button></div>
+    <div id="accountStatus" style="color:#888;font-size:12px;margin-top:8px">Create an account or log in to join.</div>
+  </div>
+  <input id="username" placeholder="chat display name" maxlength="20" autocomplete="off">
   <div id="servers"></div>
   <div id="newrow"><input id="newname" placeholder="or create a new server" maxlength="30" autocomplete="off"><button id="newBtn">CREATE</button></div>
   <div id="err"></div>
@@ -65,9 +101,16 @@
 <div id="chat" class="hidden">
   <div id="side"><h3>ONLINE</h3><div id="users"></div></div>
   <div id="main">
-    <div id="top"><span id="title"></span><span><button id="muteBtn">SOUND ON</button> <button id="leaveBtn">LEAVE</button></span></div>
+    <div id="top"><span id="title"></span><span><button id="inviteBtn">INVITE</button> <button id="profileBtn">PROFILE</button> <button id="modBtn" class="hidden">MODERATION</button> <button id="muteBtn">SOUND ON</button> <button id="leaveBtn">LEAVE</button></span></div>
     <div id="log"></div>
-    <div id="tray" class="hidden"><div id="gifs"></div></div>
+    <div id="tray" class="hidden">
+      <div id="gifs"></div>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
+        <input id="imageFile" type="file" accept="image/gif,image/png,image/jpeg,image/webp" class="hidden">
+        <button id="pickImageBtn" type="button">CHOOSE IMAGE / GIF</button>
+        <span id="imageHint" style="color:#888;font-size:12px">Pick a file from your device (max 80 KB)</span>
+      </div>
+    </div>
     <div id="bar">
       <button id="gifBtn">GIF</button>
       <input id="text" placeholder="type a message..." maxlength="500" autocomplete="off">
@@ -76,16 +119,62 @@
   </div>
 </div>
 
+<div id="modPanel" class="matrix-panel hidden">
+  <button class="matrix-close" id="closeMod">X</button>
+  <h3>// SERVER MODERATION</h3>
+  <div class="matrix-tag">OWNER CONSOLE · LIVE ROOM USERS</div>
+  <div id="modUsers"></div>
+  <p class="matrix-tag">KICK is a client-side realtime action, not tamper-proof security.</p>
+</div>
+<div id="profilePanel" class="matrix-panel hidden">
+  <button class="matrix-close" id="closeProfile">X</button>
+  <h3>// PLAYER PROFILE</h3>
+  <div class="profile-preview"><div id="profileAvatarPreview" class="profile-avatar">◈</div><div><strong id="profileNamePreview">PLAYER</strong><div class="matrix-tag" id="profileIdPreview">ID: OFFLINE</div></div></div>
+  <label class="matrix-tag" for="profileName">DISPLAY NAME</label>
+  <input id="profileName" maxlength="20" autocomplete="off" placeholder="Your display name">
+  <label class="matrix-tag" for="profileAvatar">AVATAR SYMBOL</label>
+  <select id="profileAvatar"><option>◈</option><option>◆</option><option>▣</option><option>☠</option><option>⚡</option><option>👾</option><option>🤖</option><option>🟢</option></select>
+  <label class="matrix-tag" for="profileStatus">STATUS MESSAGE</label>
+  <input id="profileStatus" maxlength="50" placeholder="Running through the matrix...">
+  <label class="matrix-tag" for="profileBio">ABOUT ME</label>
+  <input id="profileBio" maxlength="120" placeholder="A little about yourself...">
+  <div class="panel-actions"><button id="saveProfile">SAVE PROFILE</button><button id="closeProfile2">CLOSE</button></div>
+</div>
+<div id="publicProfilePanel" class="matrix-panel hidden">
+  <button class="matrix-close" id="closePublicProfile">X</button>
+  <h3>// PLAYER DOSSIER</h3>
+  <div class="profile-preview"><div id="publicAvatar" class="profile-avatar">◈</div><div><strong id="publicName">PLAYER</strong><div class="matrix-tag" id="publicRole">ONLINE PLAYER</div></div></div>
+  <div class="matrix-tag">STATUS</div><div id="publicStatus" class="profile-bio">No status set.</div>
+  <div class="matrix-tag">ABOUT</div><div id="publicBio" class="profile-bio">No bio yet.</div>
+  <div class="matrix-tag" id="publicId">PLAYER ID: UNKNOWN</div>
+</div>
+
+<!-- Secret Easter-egg screen: intentionally pure white except for one button. -->
+<div id="whiteTrickScreen" class="hidden" aria-hidden="true">
+  <button id="whiteTrickButton" type="button">CLICK</button>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 const $ = id => document.getElementById(id);
 const ANIMS = [["🎉","bounce"],["😂","shake"],["❤️","pulse"],["🌀","spin"],["🔥","pulse"],["👋","shake"],["😎","bounce"],["💀","shake"]];
 const ANIM_OK = new Set(["bounce","spin","shake","pulse"]);
+const banStoreKey = serverId => "tg_bans_" + serverId;
+function getLocalBans(serverId) { try { return JSON.parse(localStorage.getItem(banStoreKey(serverId)) || "[]"); } catch (e) { return []; } }
+function addLocalBan(serverId, id) { const list = getLocalBans(serverId); if (!list.includes(id)) list.push(id); try { localStorage.setItem(banStoreKey(serverId), JSON.stringify(list)); } catch (e) {} }
 const slug = s => String(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 30);
 const known = { general:"General", gaming:"Gaming", music:"Music", "late-night":"Late Night" };
 let room = null, nr = null, me = "", srv = null, label = "", selected = null, counts = {}, unsubs = [], settled = false;
-
-try { $("username").value = localStorage.getItem("tg_user") || ""; } catch (e) {}
+let ownerPeerId = null, iAmOwner = false, ownerUnlocked = false, roomPeers = [];
+let profile = { name: "", avatar: "◈", status: "", bio: "" };
+try { profile = { ...profile, ...JSON.parse(localStorage.getItem("tg_profile") || "{}") }; } catch (e) {}
+try {
+  const savedUsername = localStorage.getItem("tg_user") || "";
+  if (!profile.name && savedUsername) profile.name = savedUsername;
+  if (profile.name) $("username").value = profile.name;
+} catch (e) {
+  if (profile.name) $("username").value = profile.name;
+}
 
 // ---- server list (defaults + any server someone created) ----
 function renderServers() {
@@ -98,7 +187,16 @@ function renderServers() {
     b.innerHTML = "<span></span><span></span>";
     b.children[0].textContent = known[k] || k;
     b.children[1].textContent = (counts[k] || 0) + " online";
-    b.onclick = () => { selected = k; renderServers(); };
+    b.onclick = () => {
+      selected = k;
+      renderServers();
+      // If this browser already has a saved profile, selecting a server joins it directly.
+      const savedName = (profile?.name || localStorage.getItem("tg_user") || "").trim();
+      if (savedName) {
+        $("username").value = savedName;
+        if (onlineReady && !nr) $("joinBtn").click();
+      }
+    };
     $("servers").appendChild(b);
   });
 }
@@ -118,8 +216,92 @@ const SUPABASE_ANON_KEY = "sb_publishable_jlG9K3HW9aWCRk8Aa4Re4w_1EUeHkzP";
 let lobbyChannel = null;
 let onlineReady = false;
 let onlineClient = null;
+let accountUser = null;
+let accountRole = "player";
+let accountUsername = "";
+
+// Supabase Auth uses a private synthetic address so players only enter a username
+// and password. In Supabase Auth settings, disable email confirmations for this setup.
+function usernameEmail(name) { return String(name || "").trim().toLowerCase() + "@accounts.textgame.invalid"; }
+async function loadAccountRole() {
+  if (!accountUser) { accountRole = "player"; return; }
+  const { data, error } = await onlineClient.rpc("text_game_my_role");
+  if (error) throw error;
+  accountRole = data || "player";
+  iAmOwner = accountRole === "owner";
+  ownerUnlocked = iAmOwner;
+  $("modBtn").classList.toggle("hidden", !(accountRole === "owner" || accountRole === "admin"));
+}
+function setAccountStatus(message, isError=false) {
+  const el = $("accountStatus"); if (el) { el.textContent = message; el.style.color = isError ? "#f66" : "#0f0"; }
+}
+async function signUpAccount() {
+  const name = $("accountName").value.trim(); const pass = $("accountPassword").value;
+  if (!/^[a-zA-Z0-9_]{3,20}$/.test(name)) return setAccountStatus("Username must be 3–20 letters, numbers, or underscores.", true);
+  if (pass.length < 8) return setAccountStatus("Password must be at least 8 characters.", true);
+  const { data, error } = await onlineClient.auth.signUp({ email: usernameEmail(name), password: pass, options: { data: { username: name } } });
+  if (error) return setAccountStatus(error.message, true);
+  if (!data.session) return setAccountStatus("Account created. If confirmation is enabled, disable it in Supabase Auth settings, then log in.", true);
+  accountUser = data.user; accountUsername = name; await loadAccountRole();
+  $("username").value = name; setAccountStatus("Signed up and logged in as " + name + (accountRole === "owner" ? " · OWNER" : ""));
+}
+async function logInAccount() {
+  const name = $("accountName").value.trim(); const pass = $("accountPassword").value;
+  if (!name || !pass) return setAccountStatus("Enter your username and password.", true);
+  const { data, error } = await onlineClient.auth.signInWithPassword({ email: usernameEmail(name), password: pass });
+  if (error) return setAccountStatus(error.message, true);
+  accountUser = data.user; accountUsername = name; await loadAccountRole();
+  $("username").value = name; setAccountStatus("Logged in as " + name + (accountRole === "owner" ? " · OWNER" : accountRole === "admin" ? " · ADMIN" : ""));
+}
+
 const peerId = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random());
 const lobbyListeners = [];
+
+// Usernames are unique across all currently connected servers (case-insensitive).
+function cleanUsername(value) { return String(value || "").trim().toLocaleLowerCase(); }
+function lobbyUsernamePeers(name) {
+  const wanted = cleanUsername(name);
+  if (!wanted || !lobbyChannel) return [];
+  return peersFromState(lobbyChannel.presenceState()).filter(p =>
+    !p.isMe && cleanUsername(p.presence?.name) === wanted
+  );
+}
+function usernameTaken(name) { return lobbyUsernamePeers(name).length > 0; }
+function duplicateWinnerIsMe(name) {
+  // If two people submit the same name at nearly the same time, both clients
+  // see the same sorted peer IDs and only the first one keeps the username.
+  const ids = [peerId, ...lobbyUsernamePeers(name).map(p => p.id)].sort();
+  return ids[0] === peerId;
+}
+function waitMs(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+function globalOwnerPeers() {
+  if (!lobbyChannel) return [];
+  return peersFromState(lobbyChannel.presenceState()).filter(p => !p.isMe && p.presence?.ownerPeerId);
+}
+async function claimGlobalOwner() {
+  // Owner status is granted only by the protected Supabase database role.
+  if (!accountUser || accountRole !== "owner") { sys("Owner access is reserved for the configured account."); return false; }
+  if (!nr || !room || !lobbyChannel) return false;
+  if (globalOwnerPeers().length) {
+    sys("The global owner role is already claimed by another online player.");
+    return false;
+  }
+  // Publish the claim to the all-game lobby, not just this server.
+  await nr.presence({ name: me, avatar: profile.avatar || "◈", status: profile.status || "", bio: profile.bio || "", ownerPeerId: peerId });
+  await room.presence({ srv, label, name: me, ownerPeerId: peerId });
+  await waitMs(1100);
+  const claims = [peerId, ...globalOwnerPeers().map(p => p.id)].sort();
+  if (claims[0] !== peerId) {
+    await nr.presence({ name: me, avatar: profile.avatar || "◈", status: profile.status || "", bio: profile.bio || "", ownerPeerId: null });
+    await room.presence({ srv, label, name: me });
+    sys("Someone else claimed the global owner role first.");
+    return false;
+  }
+  ownerUnlocked = true; iAmOwner = true; ownerPeerId = peerId;
+  $("modBtn").classList.remove("hidden");
+  sys("OWNER ACCESS VERIFIED.");
+  return true;
+}
 
 function peersFromState(state) {
   const result = [];
@@ -210,7 +392,7 @@ async function connectOnline() {
             broadcast: { self: false, ack: true }
           }
         });
-        const handlers = { chat: [], gif: [], peers: [] };
+        const handlers = { chat: [], gif: [], kick: [], ban: [], clear: [], peers: [] };
         let currentPeers = [];
         let presenceSynced = false;
         let resolveSync;
@@ -227,6 +409,23 @@ async function connectOnline() {
         channel.on("broadcast", { event: "gif" }, ({ payload }) => {
           handlers.gif.forEach(fn => fn({ data: payload, isMe: payload?.peerId === peerId }));
         });
+        channel.on("broadcast", { event: "clear" }, ({ payload }) => {
+          // Clear the visible chat for everyone currently in this server.
+          handlers.clear.forEach(fn => fn(payload || {}));
+        });
+        async function removeTarget(message, banned) {
+          if (message?.targetPeerId !== peerId || !message?.ownerPeerId) return;
+          if (banned) addLocalBan(srv, peerId);
+          sys(banned ? "You were banned from this server by its owner." : "You were kicked from this server by its owner.");
+          setTimeout(async () => {
+            try { await channel.untrack(); await onlineClient.removeChannel(channel); } catch (e) {}
+            nr = null; unsubs.forEach(fn => fn()); unsubs = [];
+            $("chat").classList.add("hidden"); $("login").classList.remove("hidden");
+            $("err").textContent = banned ? "You are banned from this server on this browser." : "You were kicked from that server.";
+          }, 700);
+        }
+        channel.on("broadcast", { event: "kick" }, ({ payload }) => removeTarget(payload, false));
+        channel.on("broadcast", { event: "ban" }, ({ payload }) => removeTarget(payload, true));
         channel.on("presence", { event: "sync" }, () => {
           presenceSynced = true;
           refreshPeers();
@@ -278,7 +477,7 @@ async function connectOnline() {
             return () => { handlers.peers = handlers.peers.filter(x => x !== fn); };
           },
           async emit(topic, data) {
-            if (topic !== "chat" && topic !== "gif") throw new Error("Unknown message type");
+            if (topic !== "chat" && topic !== "gif" && topic !== "kick" && topic !== "ban" && topic !== "clear") throw new Error("Unknown message type");
             const result = await channel.send({
               type: "broadcast",
               event: topic,
@@ -308,6 +507,12 @@ async function connectOnline() {
   }
 }
 connectOnline();
+$("signUpBtn").onclick = async () => { if (!onlineClient) return setAccountStatus("Connecting to account service...", true); try { await signUpAccount(); } catch(e) { setAccountStatus(e.message || "Sign up failed", true); } };
+$("logInBtn").onclick = async () => { if (!onlineClient) return setAccountStatus("Connecting to account service...", true); try { await logInAccount(); } catch(e) { setAccountStatus(e.message || "Log in failed", true); } };
+$("logOutBtn").onclick = async () => { if (onlineClient) await onlineClient.auth.signOut(); accountUser=null; accountRole="player"; accountUsername=""; iAmOwner=false; $("modBtn").classList.add("hidden"); setAccountStatus("Logged out."); };
+
+// Restore an existing authenticated session.
+(async () => { try { if (onlineClient) { const { data } = await onlineClient.auth.getSession(); if (data.session) { accountUser=data.session.user; accountUsername=data.session.user.user_metadata?.username || ""; await loadAccountRole(); $("accountName").value=accountUsername; $("username").value=accountUsername; setAccountStatus("Session restored for " + accountUsername); } } } catch(e) { setAccountStatus(e.message || "Could not restore session", true); } })();
 
 // ---- sounds (generated with Web Audio, no files) ----
 let ac = null, muted = false;
@@ -334,30 +539,118 @@ function setMute(m) { muted = m; try { localStorage.setItem("tg_mute", m ? "1" :
 $("muteBtn").onclick = () => setMute(!muted);
 setMute(muted);
 
+// Matrix-style profile and invite controls.
+function refreshProfilePreview() {
+  $("profileAvatarPreview").textContent = profile.avatar || "◈";
+  $("profileNamePreview").textContent = profile.name || me || "PLAYER";
+  $("profileIdPreview").textContent = "ID: " + peerId.slice(0, 12).toUpperCase();
+}
+$("profileBtn").onclick = () => {
+  $("profileName").value = profile.name || me || $("username").value;
+  $("profileAvatar").value = profile.avatar || "◈";
+  $("profileStatus").value = profile.status || "";
+  $("profileBio").value = profile.bio || "";
+  refreshProfilePreview(); $("profilePanel").classList.toggle("hidden"); $("modPanel").classList.add("hidden"); $("publicProfilePanel").classList.add("hidden");
+};
+$("profileName").oninput = () => { $("profileNamePreview").textContent = $("profileName").value || "PLAYER"; };
+$("profileAvatar").onchange = () => { $("profileAvatarPreview").textContent = $("profileAvatar").value; };
+function closeProfile() { $("profilePanel").classList.add("hidden"); }
+function openPublicProfile(p) {
+  const data = p?.presence || {};
+  $("publicAvatar").textContent = String(data.avatar || "◈").slice(0,4);
+  $("publicName").textContent = String(data.name || "Unknown player").slice(0,20);
+  $("publicRole").textContent = data.ownerPeerId ? "★ GLOBAL OWNER" : (p?.isMe ? "YOUR PROFILE" : "ONLINE PLAYER");
+  $("publicStatus").textContent = String(data.status || "No status set.").slice(0,50);
+  $("publicBio").textContent = String(data.bio || "No bio yet.").slice(0,120);
+  $("publicId").textContent = "PLAYER ID: " + String(p?.id || "unknown").slice(0,12).toUpperCase();
+  $("publicProfilePanel").classList.remove("hidden");
+  $("profilePanel").classList.add("hidden"); $("modPanel").classList.add("hidden");
+}
+$("closePublicProfile").onclick = () => $("publicProfilePanel").classList.add("hidden");
+$("closeProfile").onclick = closeProfile; $("closeProfile2").onclick = closeProfile;
+$("saveProfile").onclick = async () => {
+  const name = $("profileName").value.trim().slice(0,20);
+  if (!name) { alert("Enter a display name first."); return; }
+  if (nr && cleanUsername(name) !== cleanUsername(me) && usernameTaken(name)) {
+    alert("That username is already being used by another online player. Choose a different one.");
+    return;
+  }
+  const previousName = me;
+  profile = { name, avatar: $("profileAvatar").value, status: $("profileStatus").value.trim().slice(0,50), bio: $("profileBio").value.trim().slice(0,120) };
+  if (nr) {
+    try {
+      await nr.presence({ name, avatar: profile.avatar, status: profile.status, bio: profile.bio, ownerPeerId: iAmOwner ? peerId : null });
+      await room.presence({ srv, label, name, ...(iAmOwner ? { ownerPeerId: peerId } : {}) });
+      await waitMs(500);
+      if (!duplicateWinnerIsMe(name)) {
+        await nr.presence({ name: previousName, avatar: profile.avatar, status: profile.status, bio: profile.bio, ownerPeerId: iAmOwner ? peerId : null });
+        await room.presence({ srv, label, name: previousName });
+        alert("That username was claimed by another player at the same time. Your old username was kept.");
+        return;
+      }
+      me = name;
+      $("title").textContent = "# " + label + "  (" + me + ")";
+    } catch (e) { sys("Profile live update failed: " + (e?.message || "unknown error")); return; }
+  }
+  try { localStorage.setItem("tg_profile", JSON.stringify(profile)); localStorage.setItem("tg_user", name); } catch (e) {}
+  $("username").value = name;
+  refreshProfilePreview(); closeProfile(); sys("Profile updated.");
+};
+$("modBtn").onclick = () => { if (accountRole !== "owner" && accountRole !== "admin") return; $("modPanel").classList.toggle("hidden"); $("profilePanel").classList.add("hidden"); $("publicProfilePanel").classList.add("hidden"); };
+$("closeMod").onclick = () => $("modPanel").classList.add("hidden");
+$("inviteBtn").onclick = async () => {
+  const url = new URL(location.href); url.hash = "server=" + encodeURIComponent(srv || selected || "general");
+  try { await navigator.clipboard.writeText(url.href); sys("Invite link copied!"); }
+  catch (e) { prompt("Copy this server invite link:", url.href); }
+};
+// Apply a server invite hash when opening the page.
+try { const match = location.hash.match(/server=([^&]+)/); if (match) { selected = decodeURIComponent(match[1]).slice(0,30); if (!known[selected]) known[selected] = selected.replace(/-/g," "); renderServers(); } } catch (e) {}
+
 // ---- log helpers (all text via textContent) ----
 function add(n) { $("log").appendChild(n); $("log").scrollTop = $("log").scrollHeight; }
 function sys(t) { const d = document.createElement("div"); d.className = "sys"; d.textContent = "* " + t; add(d); }
-function line(name, mine) {
+function line(name, mine, ownerMarker) {
   const d = document.createElement("div"); d.className = "msg" + (mine ? " me" : "");
-  const w = document.createElement("span"); w.className = "who"; w.textContent = String(name).slice(0, 20) + ": ";
+  const w = document.createElement("span"); w.className = "who"; if (ownerMarker) w.classList.add("owner-rainbow"); w.textContent = String(name).slice(0, 20) + (ownerMarker ? " ★" : "") + ": ";
   d.appendChild(w); return d;
 }
 function showText(m, mine) {
   if (typeof m.data?.text !== "string") return;
-  const d = line(m.data.name, mine); d.appendChild(document.createTextNode(m.data.text.slice(0, 500))); add(d); mine ? SFX.send() : SFX.recv();
+  const d = line(m.data.name, mine, !!m.data.ownerPeerId); d.appendChild(document.createTextNode(m.data.text.slice(0, 500))); add(d); mine ? SFX.send() : SFX.recv();
 }
 function showGif(m, mine) {
+  const d = line(m.data?.name || "someone", mine, !!m.data?.ownerPeerId);
+  // Device-selected images travel in a small Realtime message; GIF animation is preserved.
+  if (typeof m.data?.imageData === "string") {
+    if (!/^data:image\/(gif|png|jpeg|webp);base64,/i.test(m.data.imageData) || m.data.imageData.length > 120000) return;
+    const img = document.createElement("img");
+    img.className = "chatgif"; img.src = m.data.imageData;
+    img.alt = "Image shared in chat"; img.loading = "lazy";
+    d.appendChild(document.createElement("br")); d.appendChild(img);
+    add(d); SFX.gif(); return;
+  }
+  if (typeof m.data?.url === "string") {
+    try {
+      const u = new URL(m.data.url);
+      if (u.protocol !== "https:" || !/\.(gif)(?:$|[?#])/i.test(u.href)) return;
+      const img = document.createElement("img");
+      img.className = "chatgif"; img.src = u.href; img.alt = "Animated GIF";
+      img.loading = "lazy"; d.appendChild(document.createElement("br")); d.appendChild(img);
+      add(d); SFX.gif(); return;
+    } catch (e) { return; }
+  }
   const e = m.data?.e, a = m.data?.a;
   if (typeof e !== "string" || e.length > 8 || !ANIM_OK.has(a)) return;
-  const d = line(m.data.name, mine); const s = document.createElement("span");
-  s.className = "anim " + a; s.textContent = e;
-  d.appendChild(document.createElement("br")); d.appendChild(s); add(d); SFX.gif();
+  const span = document.createElement("span");
+  span.className = "anim " + a; span.textContent = e;
+  d.appendChild(document.createElement("br")); d.appendChild(span); add(d); SFX.gif();
 }
 
 // ---- join / leave ----
 $("joinBtn").onclick = async () => {
   unlock();
   const n = $("username").value.trim();
+  if (!accountUser) { $("err").textContent = "Sign up or log in before joining."; return; }
   if (!n) { $("err").textContent = "Pick a username."; return; }
   if (!selected) { $("err").textContent = "Pick or create a server."; return; }
   $("err").textContent = "";
@@ -365,23 +658,44 @@ $("joinBtn").onclick = async () => {
     $("err").textContent = "Multiplayer isn't connected yet. Check the connection status below and try again.";
     return;
   }
-  me = n; srv = selected; label = known[srv] || srv;
+  me = n; profile.name = n; srv = selected; label = known[srv] || srv;
   nr = null;
   const joinButton = $("joinBtn");
   joinButton.disabled = true;
+  if (getLocalBans(srv).includes(peerId)) {
+    $("err").textContent = "You are banned from this server on this browser.";
+    joinButton.disabled = false; return;
+  }
+  if (usernameTaken(n)) {
+    $("err").textContent = "That username is already being used by someone online. Choose another.";
+    joinButton.disabled = false; return;
+  }
   try {
     nr = await room.join("s-" + srv);
     // Give the initial Presence sync time to include everyone already in this room.
     await new Promise(r => setTimeout(r, 350));
-    const taken = nr.peers().some(p => !p.isMe && String(p.presence?.name || "").toLowerCase() === n.toLowerCase());
-    if (taken) {
+    const existingPeers = nr.peers().filter(p => !p.isMe);
+    const existingOwner = existingPeers.find(p => p.presence?.ownerPeerId);
+    ownerPeerId = existingOwner?.presence?.ownerPeerId || null;
+    iAmOwner = accountRole === "owner" || accountRole === "admin";
+    const takenInRoom = nr.peers().some(p => !p.isMe && cleanUsername(p.presence?.name) === cleanUsername(n));
+    if (takenInRoom || usernameTaken(n)) {
       await nr.leave(); nr = null;
-      $("err").textContent = "That username is already being used in this server. Choose another.";
+      $("err").textContent = "That username is already being used by someone online. Choose another.";
       joinButton.disabled = false;
       return;
     }
-    await nr.presence({ name: n });
-    await room.presence({ srv, label, name: n });
+    await nr.presence({ name: n, userId: accountUser.id, avatar: profile.avatar || "◈", status: profile.status || "", bio: profile.bio || "", ownerPeerId: accountRole === "owner" ? peerId : null, role: accountRole });
+    await room.presence({ srv, label, name: n, ...(accountRole === "owner" ? { ownerPeerId: peerId } : {}) });
+    // Re-check after Presence has propagated so simultaneous attempts converge.
+    await waitMs(700);
+    if (!duplicateWinnerIsMe(n)) {
+      await nr.leave(); nr = null;
+      await room.presence({ srv: null, label: null, name: null });
+      $("err").textContent = "That username was claimed by another player joining at the same time. Choose another.";
+      joinButton.disabled = false;
+      return;
+    }
   } catch (e) {
     console.error("Room join failed:", e);
     if (nr) { try { await nr.leave(); } catch (_) {} nr = null; }
@@ -390,7 +704,11 @@ $("joinBtn").onclick = async () => {
     return;
   }
   joinButton.disabled = false;
-  try { localStorage.setItem("tg_user", n); } catch (e) {}
+  profile.name = n;
+  try {
+    localStorage.setItem("tg_user", n);
+    localStorage.setItem("tg_profile", JSON.stringify(profile));
+  } catch (e) {}
   $("title").textContent = "# " + label + "  (" + me + ")";
   $("log").innerHTML = ""; settled = false;
   $("login").classList.add("hidden"); $("chat").classList.remove("hidden");
@@ -398,9 +716,31 @@ $("joinBtn").onclick = async () => {
   if (nr) {
     unsubs.push(nr.on("chat", m => showText(m, m.isMe)));
     unsubs.push(nr.on("gif", m => showGif(m, m.isMe)));
+    unsubs.push(nr.on("clear", () => { $("log").innerHTML = ""; }));
     unsubs.push(nr.onPeers(ch => {
       $("users").innerHTML = "";
-      ch.peers.forEach(p => { const d = document.createElement("div"); d.textContent = String(p.presence?.name || "someone").slice(0, 20) + (p.isMe ? " (you)" : ""); $("users").appendChild(d); });
+      roomPeers = ch.peers;
+      const owner = ch.peers.find(p => p.presence?.ownerPeerId);
+      if (owner) { ownerPeerId = owner.presence.ownerPeerId; if (ownerPeerId === peerId) iAmOwner = true; }
+      $("modBtn").classList.toggle("hidden", !(accountRole === "owner" || accountRole === "admin"));
+      $("modUsers").innerHTML = "";
+      ch.peers.forEach(p => {
+        const name = String(p.presence?.name || "someone").slice(0, 20);
+        const d = document.createElement("button"); d.className = "profile-link"; d.textContent = (p.presence?.avatar || "◈") + " " + name + (p.isMe ? " (you)" : "") + (p.presence?.ownerPeerId ? " ★ OWNER" : "") + "  ›"; if (p.presence?.ownerPeerId) d.classList.add("owner-rainbow"); d.title = "View " + name + "'s profile"; d.onclick = () => openPublicProfile(p); $("users").appendChild(d);
+        const row = document.createElement("div"); row.className = "matrix-user";
+        const label = document.createElement("span"); label.textContent = (p.presence?.avatar || "◈") + " " + name + (p.isMe ? " (you)" : ""); row.appendChild(label);
+        if ((accountRole === "owner" || accountRole === "admin") && !p.isMe && p.presence?.role !== "owner") {
+          const actions = document.createElement("span"); actions.style.display = "flex"; actions.style.gap = "5px";
+          const kick = document.createElement("button"); kick.textContent = "KICK";
+          kick.onclick = async () => { if ((accountRole !== "owner" && accountRole !== "admin") || p.presence?.role === "owner") return; if (confirm("Kick " + name + " from this server?")) { try { await nr.emit("kick", { targetPeerId: p.id, ownerPeerId: peerId, ownerName: me }); sys("Kick request sent for " + name + "."); } catch (e) { sys("Kick failed: " + e.message); } } };
+          const ban = document.createElement("button"); ban.textContent = "BAN"; ban.style.borderColor = "#ff5555"; ban.style.color = "#ff7777";
+          ban.onclick = async () => { if ((accountRole !== "owner" && accountRole !== "admin") || p.presence?.role === "owner") return; if (confirm("BAN " + name + " from this server on this browser?")) { try { await nr.emit("ban", { targetPeerId: p.id, ownerPeerId: peerId, ownerName: me }); sys("Ban request sent for " + name + "."); } catch (e) { sys("Ban failed: " + e.message); } } };
+          const adminBtn = document.createElement("button"); adminBtn.textContent = p.presence?.role === "admin" ? "REMOVE ADMIN" : "GIVE ADMIN"; adminBtn.style.borderColor = "#0f0"; adminBtn.style.color = "#0f0";
+          adminBtn.onclick = async () => { if (accountRole !== "owner" || !accountUser) return; try { const { error } = await onlineClient.rpc("text_game_set_admin", { target_user_id: p.presence?.userId || null, make_admin: p.presence?.role !== "admin" }); if (error) throw error; sys("Admin role updated in database. They may need to rejoin to refresh permissions."); } catch(e) { sys("Admin update failed: " + (e.message || "database setup required")); } };
+          actions.append(kick, ban); if (accountRole === "owner") actions.append(adminBtn); row.appendChild(actions);
+        }
+        $("modUsers").appendChild(row);
+      });
       if (settled) {
         ch.joined.forEach(p => { if (!p.isMe) { sys(String(p.presence?.name || "someone").slice(0, 20) + " joined."); SFX.join(); } });
         ch.left.forEach(p => { sys(String(p.presence?.name || "someone").slice(0, 20) + " left."); SFX.leave(); });
@@ -416,6 +756,7 @@ $("leaveBtn").onclick = async () => {
   unsubs.forEach(u => u()); unsubs = [];
   if (nr) { try { await nr.leave(); } catch (e) {} nr = null; }
   if (room) { try { await room.presence({ srv: null, label: null, name: null }); } catch (e) {} }
+  iAmOwner = false; ownerPeerId = null; ownerUnlocked = false; $("modBtn").classList.add("hidden");
   $("chat").classList.add("hidden"); $("login").classList.remove("hidden"); $("tray").classList.add("hidden");
 };
 
@@ -424,18 +765,88 @@ async function out(topic, data) {
   if (!nr) { sys("You're not connected to a multiplayer server. Rejoin to send messages."); return; }
   // Supabase Broadcast is configured with self:false, so render the sender's
   // copy locally and send one copy to everyone else in the room.
-  const localMessage = { data: { ...data, peerId } };
+  const outgoing = { ...data, peerId, ...(iAmOwner ? { ownerPeerId: peerId } : {}) };
+  const localMessage = { data: outgoing };
   if (topic === "chat") showText(localMessage, true);
   else if (topic === "gif") showGif(localMessage, true);
   try {
-    await nr.emit(topic, data);
+    await nr.emit(topic, outgoing);
   } catch (e) {
     console.error("Message send failed:", e);
     sys("Message may not have reached the other players: " + (e?.message || "send failed"));
   }
 }
+let whiteTrickOpen = false, trickDigits = "", trickStartedAt = 0;
+let trickArmedUntil = 0, trickUnlocking = false;
+function openWhiteTrick() {
+  whiteTrickOpen = true;
+  trickDigits = "";
+  trickStartedAt = 0;
+  trickArmedUntil = 0;
+  $("whiteTrickScreen").classList.remove("hidden");
+  $("whiteTrickScreen").setAttribute("aria-hidden", "false");
+}
+async function finishOwnerTrick() {
+  if (trickUnlocking) return;
+  trickUnlocking = true;
+  trickArmedUntil = 0;
+  trickDigits = "";
+  $("text").value = "";
+  const won = await claimGlobalOwner();
+  if (!won && !iAmOwner) sys("The secret sequence cannot grant Owner status. Log in with the Owner account.");
+  trickUnlocking = false;
+}
+document.addEventListener("keydown", e => {
+  if (whiteTrickOpen || !trickArmedUntil || trickUnlocking) return;
+  if (performance.now() > trickArmedUntil) {
+    trickArmedUntil = 0;
+    trickDigits = "";
+    return;
+  }
+  if (/^[0-9]$/.test(e.key)) {
+    e.preventDefault();
+    const now = performance.now();
+    if (!trickStartedAt || now - trickStartedAt > 5000) {
+      trickDigits = e.key;
+      trickStartedAt = now;
+    } else {
+      trickDigits += e.key;
+    }
+    if (trickDigits.length > 4) trickDigits = trickDigits.slice(-4);
+    if ($("text")) $("text").value = "";
+    if (trickDigits === "5555" && now - trickStartedAt <= 5000) finishOwnerTrick();
+  } else if (e.key === "Backspace") {
+    e.preventDefault();
+    trickDigits = trickDigits.slice(0, -1);
+  } else if (e.key === "Escape") {
+    trickArmedUntil = 0;
+    trickDigits = "";
+    sys("Secret attempt cancelled.");
+  }
+});
+$("whiteTrickButton").onclick = () => {
+  // Clicking the button arms the secret sequence; type 5555 AFTER clicking.
+  $("whiteTrickScreen").classList.add("hidden");
+  $("whiteTrickScreen").setAttribute("aria-hidden", "true");
+  whiteTrickOpen = false;
+  trickDigits = "";
+  trickStartedAt = 0;
+  trickArmedUntil = performance.now() + 15000;
+  sys("Secret panel armed. Type 5555 within 5 seconds to unlock the owner role.");
+  requestAnimationFrame(() => $("text").focus());
+};
 function sendText() {
   const t = $("text").value.trim(); if (!t) return;
+  if (t.toUpperCase() === "TRICK") { $("text").value = ""; openWhiteTrick(); return; }
+  // Keep the chat-clear command separate from the owner Easter egg.
+  // During the armed owner attempt, the document key handler captures 5555
+  // before it can be submitted as a normal chat message.
+  if (t === "5555") {
+    $("text").value = "";
+    $("log").innerHTML = "";
+    if (nr) out("clear", { command: "clear-chat", peerId });
+    return;
+  }
   out("chat", { name: me, text: t, peerId }); $("text").value = "";
 }
 $("send").onclick = sendText;
@@ -447,6 +858,46 @@ ANIMS.forEach(([e, a]) => {
   $("gifs").appendChild(b);
 });
 $("gifBtn").onclick = () => $("tray").classList.toggle("hidden");
+
+
+// Choose an image/GIF from your device instead of pasting an image URL.
+$("pickImageBtn").onclick = () => $("imageFile").click();
+$("imageFile").onchange = () => {
+  const file = $("imageFile").files && $("imageFile").files[0];
+  if (!file) return;
+  const allowed = ["image/gif", "image/png", "image/jpeg", "image/webp"];
+  if (!allowed.includes(file.type)) {
+    $("imageHint").textContent = "Choose a GIF, PNG, JPG, or WebP image.";
+    $("imageFile").value = ""; return;
+  }
+  // Keep Realtime broadcasts below common payload limits.
+  if (file.size > 80 * 1024) {
+    $("imageHint").textContent = "File too large. Choose an image/GIF under 80 KB.";
+    $("imageFile").value = ""; return;
+  }
+  if (!nr) {
+    sys("Join a server before sharing an image.");
+    $("imageFile").value = ""; return;
+  }
+  $("imageHint").textContent = "Sending " + file.name + "...";
+  const reader = new FileReader();
+  reader.onload = async () => {
+    const imageData = reader.result;
+    if (typeof imageData !== "string") {
+      $("imageHint").textContent = "Couldn't read that image.";
+      $("imageFile").value = ""; return;
+    }
+    await out("gif", { name: me, imageData, peerId });
+    $("imageHint").textContent = "Image sent (if Realtime accepted the message).";
+    $("tray").classList.add("hidden");
+    $("imageFile").value = "";
+  };
+  reader.onerror = () => {
+    $("imageHint").textContent = "Couldn't read that file.";
+    $("imageFile").value = "";
+  };
+  reader.readAsDataURL(file);
+};
 </script>
 </body>
 </html>
