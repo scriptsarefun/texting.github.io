@@ -187,7 +187,7 @@
   <button id="whiteTrickButton" type="button">CLICK</button>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script async src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 const $ = id => document.getElementById(id);
 const ANIMS = [["🎉","bounce"],["😂","shake"],["❤️","pulse"],["🌀","spin"],["🔥","pulse"],["👋","shake"],["😎","bounce"],["💀","shake"]];
@@ -226,6 +226,11 @@ try {
 } catch (e) {
   if (profile.name) $("username").value = profile.name;
 }
+
+// Account state must be initialized before the first server-list render.
+let accountUser = null;
+let accountRole = "player";
+let accountUsername = "";
 
 // ---- server list (defaults + any server someone created) ----
 function renderServers() {
@@ -280,9 +285,6 @@ const SUPABASE_ANON_KEY = "sb_publishable_jlG9K3HW9aWCRk8Aa4Re4w_1EUeHkzP";
 let lobbyChannel = null;
 let onlineReady = false;
 let onlineClient = null;
-let accountUser = null;
-let accountRole = "player";
-let accountUsername = "";
 
 // Local accounts: passwords are PBKDF2-hashed in this browser. Supabase is used
 // only for Realtime multiplayer (presence and broadcast), never for authentication.
@@ -454,14 +456,22 @@ async function connectOnline() {
   const joinButton = $("joinBtn");
   joinButton.disabled = true;
   joinButton.textContent = "CONNECTING...";
-  status.textContent = "Connecting to multiplayer...";
+  status.textContent = "Loading multiplayer service...";
 
+  // The Supabase CDN script is intentionally async so a slow/blocked CDN can
+  // never prevent the local sign-up and log-in buttons from being initialized.
+  // Wait briefly for it here; account creation itself does not depend on it.
+  const libraryStartedAt = Date.now();
+  while (!window.supabase?.createClient && Date.now() - libraryStartedAt < 12000) {
+    await waitMs(150);
+  }
   if (!SUPABASE_URL.startsWith("https://") || !SUPABASE_ANON_KEY.startsWith("sb_publishable_") || !window.supabase?.createClient) {
-    status.textContent = "Multiplayer setup problem: check the Supabase URL, publishable key, and internet connection.";
+    status.textContent = "Multiplayer library did not load. Sign up/log in still works; refresh to retry multiplayer.";
     joinButton.disabled = false;
-    joinButton.textContent = "JOIN";
+    joinButton.textContent = "RETRY / JOIN";
     return;
   }
+  status.textContent = "Connecting to multiplayer...";
 
   try {
     onlineClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -655,8 +665,16 @@ async function connectOnline() {
   }
 }
 connectOnline();
-$("signUpBtn").onclick = async () => { try { await signUpAccount(); } catch(e) { setAccountStatus(e.message || "Sign up failed", true); } };
-$("logInBtn").onclick = async () => { try { await logInAccount(); } catch(e) { setAccountStatus(e.message || "Log in failed", true); } };
+$("signUpBtn").onclick = async () => {
+  setAccountStatus("Creating your local account...");
+  try { await signUpAccount(); }
+  catch(e) { console.error("Sign up failed:", e); setAccountStatus(e?.message || "Sign up failed. Check that you are using the GitHub Pages HTTPS link.", true); }
+};
+$("logInBtn").onclick = async () => {
+  setAccountStatus("Checking your local account...");
+  try { await logInAccount(); }
+  catch(e) { console.error("Log in failed:", e); setAccountStatus(e?.message || "Log in failed.", true); }
+};
 $("logOutBtn").onclick = async () => { if (inboxChannel && onlineClient) { try { await onlineClient.removeChannel(inboxChannel); } catch(e) {} inboxChannel = null; } await closeDirectMessage(); localStorage.removeItem(LOCAL_SESSION_KEY); accountUser=null; accountRole="player"; accountUsername=""; iAmOwner=false; ownerUnlocked=false; $("ownerServersBtn").classList.add("hidden"); $("ownerServersChatBtn").classList.add("hidden"); $("modBtn").classList.add("hidden"); $("logOutBtn").classList.add("hidden"); $("signUpBtn").classList.remove("hidden"); $("logInBtn").classList.remove("hidden"); setAccountStatus("Logged out."); };
 
 // Restore the local-only account session; no Supabase Auth is contacted.
