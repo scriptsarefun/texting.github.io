@@ -37,7 +37,10 @@
   .matrix-user .owner-rainbow { font-size:14px; }
   .sys { color:var(--dim); font-style:italic; margin-bottom:10px; }
   .anim { display:inline-block; font-size:56px; margin-top:6px; }
-  .chatgif { display:block; max-width:min(320px,80vw); max-height:240px; margin-top:8px; border:1px solid #333; }
+  .chatgif { display:block; width:auto; max-width:min(560px,92vw); max-height:420px; object-fit:contain; margin-top:8px; border:1px solid #333; border-radius:8px; }
+  #notificationPanel { position:fixed; z-index:60; inset:8% 5%; max-width:560px; margin:auto; max-height:84vh; overflow:auto; padding:16px; background:#050b07; border:1px solid #0f0; box-shadow:0 0 24px #0f05; }
+  #notificationList button { display:block; width:100%; text-align:left; margin:7px 0; white-space:normal; }
+  .notification-unread { border-left:3px solid #0f0; padding-left:8px; }
   #peopleSearchPanel, #dmPanel { position:fixed; z-index:40; inset:6% 5%; max-width:560px; margin:auto; max-height:88vh; overflow:auto; padding:16px; background:#050b07; border:1px solid #0f0; box-shadow:0 0 24px #0f05; }
   #peopleResults button { display:block; width:100%; text-align:left; margin:7px 0; }
   #dmMessages { height:min(48vh,420px); overflow:auto; border:1px solid #124d2a; padding:10px; margin:10px 0; background:#000; }
@@ -103,6 +106,7 @@
   <input id="username" placeholder="chat display name" maxlength="20" autocomplete="off">
   <div id="servers"></div>
   <div id="newrow"><input id="newname" placeholder="or create a new server" maxlength="30" autocomplete="off"><button id="newBtn">CREATE</button></div>
+  <button id="notificationsMenuBtn" type="button">NOTIFICATIONS (0)</button>
   <button id="peopleSearchMenuBtn" type="button">SEARCH PLAYERS / PRIVATE MESSAGE</button>
   <button id="ownerServersBtn" class="hidden" type="button">OWNER: MANAGE ALL SERVERS</button>
   <div id="err"></div>
@@ -113,7 +117,7 @@
 <div id="chat" class="hidden">
   <div id="side"><h3>ONLINE</h3><div id="users"></div></div>
   <div id="main">
-    <div id="top"><span id="title"></span><span><button id="inviteBtn">INVITE</button> <button id="peopleSearchChatBtn">SEARCH PLAYERS</button> <button id="serverSettingsBtn" class="hidden">SERVER SETTINGS</button> <button id="ownerServersChatBtn" class="hidden">OWNER SERVERS</button> <button id="profileBtn">PROFILE</button> <button id="modBtn" class="hidden">MODERATION</button> <button id="muteBtn">SOUND ON</button> <button id="leaveBtn">LEAVE</button></span></div>
+    <div id="top"><span id="title"></span><span><button id="inviteBtn">INVITE</button> <button id="notificationsChatBtn">NOTIFICATIONS (0)</button> <button id="peopleSearchChatBtn">SEARCH PLAYERS</button> <button id="serverSettingsBtn" class="hidden">SERVER SETTINGS</button> <button id="ownerServersChatBtn" class="hidden">OWNER SERVERS</button> <button id="profileBtn">PROFILE</button> <button id="modBtn" class="hidden">MODERATION</button> <button id="muteBtn">SOUND ON</button> <button id="leaveBtn">LEAVE</button></span></div>
     <div id="log"></div>
     <div id="tray" class="hidden">
       <div id="gifs"></div>
@@ -131,6 +135,13 @@
   </div>
 </div>
 
+<div id="notificationPanel" class="hidden">
+  <button id="closeNotifications" style="float:right">CLOSE</button>
+  <h3 style="color:#0f0">// NOTIFICATIONS</h3>
+  <p id="notificationStatus" style="color:#999;font-size:12px">Your new alerts will appear here while you are online.</p>
+  <div id="notificationList"></div>
+  <button id="clearNotifications" type="button">CLEAR ALL</button>
+</div>
 <div id="peopleSearchPanel" class="hidden">
   <button id="closePeopleSearch" style="float:right">CLOSE</button>
   <h3 style="color:#0f0">// FIND PLAYERS</h3>
@@ -501,6 +512,7 @@ async function connectOnline() {
 
     lobbyChannel.on("broadcast", { event: "server-shutdown" }, async ({ payload }) => {
       if (!payload?.srv || payload.srv !== srv || !nr) return;
+      addNotification({ kind:"system", title:"Server shut down", detail:"The global owner closed " + (label || srv) });
       sys("This server was shut down by the global owner.");
       try { await nr.leave(); } catch(e) {}
       nr = null;
@@ -888,6 +900,46 @@ function showGif(m, mine) {
 
 // ---- player search + live private messages ----
 let dmChannel = null, inboxChannel = null, dmTarget = null, dmChannelName = "";
+let notifications = [];
+const inboxCache = new Map();
+function updateNotificationButtons() {
+  const count = notifications.filter(n => !n.read).length;
+  [$("notificationsMenuBtn"), $("notificationsChatBtn")].forEach(b => { if (b) b.textContent = `NOTIFICATIONS (${count})`; });
+}
+function renderNotifications() {
+  const list = $("notificationList"); if (!list) return;
+  list.innerHTML = "";
+  if (!notifications.length) { const empty = document.createElement("p"); empty.style.color = "#888"; empty.textContent = "You're all caught up!"; list.appendChild(empty); }
+  notifications.slice().reverse().forEach(n => {
+    const b = document.createElement("button");
+    b.className = n.read ? "" : "notification-unread";
+    b.textContent = (n.read ? "✓ " : "● ") + n.title + (n.detail ? " — " + n.detail : "");
+    b.onclick = async () => {
+      n.read = true; updateNotificationButtons(); renderNotifications();
+      if (n.kind === "dm" && n.person) {
+        await openDirectMessage(n.person);
+      }
+    };
+    list.appendChild(b);
+  });
+  updateNotificationButtons();
+}
+function addNotification(item) {
+  notifications.push({ id:Date.now()+Math.random(), read:false, ...item });
+  if (notifications.length > 60) notifications = notifications.slice(-60);
+  renderNotifications();
+  // In-app alerts work without requesting browser notification permissions.
+}
+function openNotifications() {
+  if (!accountUser) { $("notificationStatus").textContent = "Sign up or log in to receive notifications."; }
+  else { $("notificationStatus").textContent = "Alerts received during this session. Private message previews are kept only in this browser session."; }
+  $("notificationPanel").classList.remove("hidden"); renderNotifications();
+}
+function cacheIncomingMessage(person, text) {
+  const arr = inboxCache.get(person.id) || [];
+  arr.push({ name:person.name, text:String(text || "").slice(0,500) });
+  inboxCache.set(person.id, arr.slice(-100));
+}
 function onlinePlayerDirectory() {
   if (!lobbyChannel) return [];
   const unique = new Map();
@@ -926,13 +978,13 @@ async function setupPrivateInbox() {
   if (!onlineClient || !accountUser || inboxChannel) return;
   const name = await accountInboxName(accountUser.id);
   inboxChannel = onlineClient.channel(name, { config: { broadcast: { self:false, ack:true } } });
-  inboxChannel.on("broadcast", { event:"dm" }, async ({ payload }) => {
+  inboxChannel.on("broadcast", { event:"dm" }, ({ payload }) => {
     if (!payload || payload.to !== accountUser?.id || !payload.from) return;
     const sender = { id:payload.from, name:String(payload.name || "Player").slice(0,20), avatar:"◈" };
-    if (!dmTarget || dmTarget.id !== sender.id || $("dmPanel").classList.contains("hidden")) {
-      await openDirectMessage(sender);
-    }
-    appendDmMessage(sender.name, payload.text || "");
+    const message = String(payload.text || "").slice(0,500);
+    cacheIncomingMessage(sender, message);
+    addNotification({ kind:"dm", title:"New private message from " + sender.name, detail:message.slice(0,90), person:sender });
+    if (dmTarget?.id === sender.id && !$("dmPanel").classList.contains("hidden")) appendDmMessage(sender.name, message);
   });
   try { await waitForSubscribe(inboxChannel); }
   catch(e) { try { await onlineClient.removeChannel(inboxChannel); } catch(_) {} inboxChannel = null; }
@@ -949,6 +1001,7 @@ async function openDirectMessage(person) {
   dmTarget = person;
   $("dmTargetName").textContent = person.name;
   $("dmMessages").innerHTML = "";
+  (inboxCache.get(person.id) || []).forEach(m => appendDmMessage(m.name, m.text));
   $("peopleSearchPanel").classList.add("hidden");
   $("dmPanel").classList.remove("hidden");
   dmChannelName = await accountInboxName(person.id);
@@ -978,6 +1031,10 @@ async function sendDirectMessage() {
     appendDmMessage(accountUsername, value); $("dmInput").value = "";
   } catch(e) { appendDmMessage("SYSTEM", "Message failed to send. " + (e.message || "")); }
 }
+$("notificationsMenuBtn").onclick = openNotifications;
+$("notificationsChatBtn").onclick = openNotifications;
+$("closeNotifications").onclick = () => $("notificationPanel").classList.add("hidden");
+$("clearNotifications").onclick = () => { notifications = []; renderNotifications(); };
 $("peopleSearchMenuBtn").onclick = openPeopleSearch;
 $("peopleSearchChatBtn").onclick = openPeopleSearch;
 $("closePeopleSearch").onclick = () => $("peopleSearchPanel").classList.add("hidden");
