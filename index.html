@@ -565,7 +565,37 @@ async function connectOnline() {
         channel.on("broadcast", { event: "chat" }, ({ payload }) => {
           handlers.chat.forEach(fn => fn({ data: payload, isMe: payload?.peerId === peerId }));
         });
+        // Large image/GIF messages are split into small Realtime broadcasts and
+        // reassembled on each receiver. This avoids sending a single oversized payload.
+        const gifTransfers = new Map();
         channel.on("broadcast", { event: "gif" }, ({ payload }) => {
+          if (payload && typeof payload.imageChunk === "string") {
+            const id = payload.transferId;
+            const index = payload.chunkIndex;
+            const total = payload.chunkCount;
+            if (typeof id !== "string" || id.length > 100 || !Number.isInteger(index) ||
+                !Number.isInteger(total) || total < 1 || total > 12 || index < 0 || index >= total ||
+                payload.imageChunk.length > 50000) return;
+            let transfer = gifTransfers.get(id);
+            if (!transfer) {
+              if (gifTransfers.size >= 8) gifTransfers.delete(gifTransfers.keys().next().value);
+              transfer = { chunks: new Array(total), received: 0, name: String(payload.name || "Player").slice(0, 20),
+                peerId: payload.peerId, ownerPeerId: payload.ownerPeerId, mime: payload.mime };
+              gifTransfers.set(id, transfer);
+            }
+            if (transfer.chunks.length !== total || transfer.chunks[index] !== undefined) return;
+            transfer.chunks[index] = payload.imageChunk;
+            transfer.received++;
+            if (transfer.received === total) {
+              const imageData = transfer.chunks.join("");
+              gifTransfers.delete(id);
+              if (imageData.length <= 420000 && /^data:image\/(gif|png|jpeg|webp);base64,/i.test(imageData)) {
+                const complete = { name: transfer.name, peerId: transfer.peerId, ownerPeerId: transfer.ownerPeerId, imageData };
+                handlers.gif.forEach(fn => fn({ data: complete, isMe: complete.peerId === peerId }));
+              }
+            }
+            return;
+          }
           handlers.gif.forEach(fn => fn({ data: payload, isMe: payload?.peerId === peerId }));
         });
         channel.on("broadcast", { event: "clear" }, ({ payload }) => {
@@ -874,7 +904,7 @@ function showGif(m, mine) {
   const d = line(m.data?.name || "someone", mine, !!m.data?.ownerPeerId);
   // Device-selected images travel in a small Realtime message; GIF animation is preserved.
   if (typeof m.data?.imageData === "string") {
-    if (!/^data:image\/(gif|png|jpeg|webp);base64,/i.test(m.data.imageData) || m.data.imageData.length > 120000) return;
+    if (!/^data:image\/(gif|png|jpeg|webp);base64,/i.test(m.data.imageData) || m.data.imageData.length > 420000) return;
     const img = document.createElement("img");
     img.className = "chatgif"; img.src = m.data.imageData;
     img.alt = "Image shared in chat"; img.loading = "lazy";
@@ -1282,8 +1312,8 @@ $("imageFile").onchange = () => {
     $("imageFile").value = ""; return;
   }
   // Keep Realtime broadcasts below common payload limits.
-  if (file.size > 80 * 1024) {
-    $("imageHint").textContent = "File too large. Choose an image/GIF under 80 KB.";
+  if (file.size > 300 * 1024) {
+    $("imageHint").textContent = "File too large. Choose an image/GIF up to 300 KB.";
     $("imageFile").value = ""; return;
   }
   if (!nr) {
@@ -1298,8 +1328,29 @@ $("imageFile").onchange = () => {
       $("imageHint").textContent = "Couldn't read that image.";
       $("imageFile").value = ""; return;
     }
-    await out("gif", { name: me, imageData, peerId });
-    $("imageHint").textContent = "Image sent (if Realtime accepted the message).";
+    // Keep the original file-size limit at 300 KB. Base64 adds overhead, so
+    // split the data URL into small broadcasts and let receivers reassemble it.
+    if (imageData.length > 420000) {
+      $("imageHint").textContent = "That image is too large after encoding. Try a smaller GIF.";
+      $("imageFile").value = ""; return;
+    }
+    const chunkSize = 42000;
+    const chunkCount = Math.ceil(imageData.length / chunkSize);
+    const transferId = peerId + "-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
+    showGif({ data: { name: me, imageData, peerId, ...(iAmOwner ? { ownerPeerId: peerId } : {}) } }, true);
+    try {
+      for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex++) {
+        await nr.emit("gif", {
+          name: me, peerId, ...(iAmOwner ? { ownerPeerId: peerId } : {}),
+          transferId, chunkIndex, chunkCount, mime: file.type,
+          imageChunk: imageData.slice(chunkIndex * chunkSize, (chunkIndex + 1) * chunkSize)
+        });
+      }
+      $("imageHint").textContent = "GIF sent! (Up to 300 KB)";
+    } catch (sendError) {
+      console.error("GIF send failed:", sendError);
+      $("imageHint").textContent = "GIF could not be sent. Try a smaller file.";
+    }
     $("tray").classList.add("hidden");
     $("imageFile").value = "";
   };
